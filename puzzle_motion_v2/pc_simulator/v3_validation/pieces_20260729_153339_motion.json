@@ -1,0 +1,348 @@
+{
+  "protocol": "maixcam2-puzzle-motion-v1",
+  "created_unix": 1785345532,
+  "units": "cm",
+  "coordinate_frame": {
+    "origin": "A4_top_left",
+    "x_positive": "right",
+    "y_positive": "down",
+    "rotation_positive": "clockwise"
+  },
+  "sheet": {
+    "width_cm": 21.0,
+    "height_cm": 29.7,
+    "source_region": "upper_half",
+    "target_region": "lower_half"
+  },
+  "tool": {
+    "magnet_radius_cm": 0.5,
+    "pickup_margin_cm": 0.2
+  },
+  "solution": {
+    "piece_count": 4,
+    "rectangularity": 0.962472,
+    "target_width_cm": 9.5643,
+    "target_height_cm": 8.1288,
+    "search_nodes": 8
+  },
+  "pieces": [
+    {
+      "id": 3,
+      "source_vertices_cm": [
+        [
+          14.529,
+          6.117
+        ],
+        [
+          10.907,
+          7.416
+        ],
+        [
+          14.785,
+          12.972
+        ],
+        [
+          17.71,
+          8.198
+        ]
+      ],
+      "target_vertices_cm": [
+        [
+          9.6376,
+          23.4613
+        ],
+        [
+          12.0113,
+          20.4328
+        ],
+        [
+          5.77,
+          17.7958
+        ],
+        [
+          5.837,
+          23.3942
+        ]
+      ],
+      "source_centroid_cm": [
+        14.4459,
+        8.9544
+      ],
+      "target_centroid_cm": [
+        8.1968,
+        21.0155
+      ],
+      "pickup_source_cm": [
+        14.457,
+        8.942
+      ],
+      "pickup_target_cm": [
+        8.194,
+        21.0319
+      ],
+      "pickup_clearance_cm": 2.0375,
+      "pickup_safe": true,
+      "rotation_deg_clockwise": 147.8189
+    },
+    {
+      "id": 2,
+      "source_vertices_cm": [
+        [
+          18.274,
+          4.878
+        ],
+        [
+          14.309,
+          1.105
+        ],
+        [
+          8.639,
+          6.513
+        ]
+      ],
+      "target_vertices_cm": [
+        [
+          9.6929,
+          23.5788
+        ],
+        [
+          15.1632,
+          23.3967
+        ],
+        [
+          15.2822,
+          15.5621
+        ]
+      ],
+      "source_centroid_cm": [
+        13.7407,
+        4.1653
+      ],
+      "target_centroid_cm": [
+        13.3794,
+        20.8458
+      ],
+      "pickup_source_cm": [
+        13.739,
+        4.155
+      ],
+      "pickup_target_cm": [
+        13.388,
+        20.8519
+      ],
+      "pickup_clearance_cm": 1.5049,
+      "pickup_safe": true,
+      "rotation_deg_clockwise": 134.5152
+    },
+    {
+      "id": 1,
+      "source_vertices_cm": [
+        [
+          3.32,
+          1.728
+        ],
+        [
+          2.259,
+          5.913
+        ],
+        [
+          5.637,
+          7.992
+        ],
+        [
+          7.261,
+          6.008
+        ]
+      ],
+      "target_vertices_cm": [
+        [
+          15.1789,
+          15.58
+        ],
+        [
+          10.8616,
+          15.5661
+        ],
+        [
+          9.6643,
+          19.3475
+        ],
+        [
+          11.983,
+          20.4417
+        ]
+      ],
+      "source_centroid_cm": [
+        4.5302,
+        5.226
+      ],
+      "target_centroid_cm": [
+        12.079,
+        17.6027
+      ],
+      "pickup_source_cm": [
+        4.534,
+        5.228
+      ],
+      "pickup_target_cm": [
+        12.0781,
+        17.6069
+      ],
+      "pickup_clearance_cm": 1.4748,
+      "pickup_safe": true,
+      "rotation_deg_clockwise": 75.9585
+    },
+    {
+      "id": 4,
+      "source_vertices_cm": [
+        [
+          6.466,
+          8.309
+        ],
+        [
+          2.364,
+          9.171
+        ],
+        [
+          4.829,
+          13.672
+        ],
+        [
+          6.814,
+          12.475
+        ]
+      ],
+      "target_vertices_cm": [
+        [
+          9.6353,
+          19.4618
+        ],
+        [
+          10.8496,
+          15.45
+        ],
+        [
+          5.7178,
+          15.45
+        ],
+        [
+          5.8142,
+          17.766
+        ]
+      ],
+      "source_centroid_cm": [
+        4.9931,
+        10.7108
+      ],
+      "target_centroid_cm": [
+        8.2362,
+        17.0163
+      ],
+      "pickup_source_cm": [
+        4.989,
+        10.709
+      ],
+      "pickup_target_cm": [
+        8.2398,
+        17.0136
+      ],
+      "pickup_clearance_cm": 1.5529,
+      "pickup_safe": true,
+      "rotation_deg_clockwise": 118.7076
+    }
+  ],
+  "commands": [
+    {
+      "sequence": 1,
+      "piece_id": 3,
+      "pick_x_cm": 14.457,
+      "pick_y_cm": 8.942,
+      "place_x_cm": 8.194,
+      "place_y_cm": 21.0319,
+      "rotate_deg_clockwise": 147.8189,
+      "pickup_clearance_cm": 2.0375,
+      "pickup_safe": true,
+      "actions": [
+        "MOVE_XY_PICK",
+        "Z_DOWN",
+        "MAGNET_ON",
+        "Z_UP",
+        "ROTATE",
+        "MOVE_XY_PLACE",
+        "Z_DOWN",
+        "MAGNET_OFF",
+        "Z_UP",
+        "ROTATE_HOME"
+      ]
+    },
+    {
+      "sequence": 2,
+      "piece_id": 2,
+      "pick_x_cm": 13.739,
+      "pick_y_cm": 4.155,
+      "place_x_cm": 13.388,
+      "place_y_cm": 20.8519,
+      "rotate_deg_clockwise": 134.5152,
+      "pickup_clearance_cm": 1.5049,
+      "pickup_safe": true,
+      "actions": [
+        "MOVE_XY_PICK",
+        "Z_DOWN",
+        "MAGNET_ON",
+        "Z_UP",
+        "ROTATE",
+        "MOVE_XY_PLACE",
+        "Z_DOWN",
+        "MAGNET_OFF",
+        "Z_UP",
+        "ROTATE_HOME"
+      ]
+    },
+    {
+      "sequence": 3,
+      "piece_id": 1,
+      "pick_x_cm": 4.534,
+      "pick_y_cm": 5.228,
+      "place_x_cm": 12.0781,
+      "place_y_cm": 17.6069,
+      "rotate_deg_clockwise": 75.9585,
+      "pickup_clearance_cm": 1.4748,
+      "pickup_safe": true,
+      "actions": [
+        "MOVE_XY_PICK",
+        "Z_DOWN",
+        "MAGNET_ON",
+        "Z_UP",
+        "ROTATE",
+        "MOVE_XY_PLACE",
+        "Z_DOWN",
+        "MAGNET_OFF",
+        "Z_UP",
+        "ROTATE_HOME"
+      ]
+    },
+    {
+      "sequence": 4,
+      "piece_id": 4,
+      "pick_x_cm": 4.989,
+      "pick_y_cm": 10.709,
+      "place_x_cm": 8.2398,
+      "place_y_cm": 17.0136,
+      "rotate_deg_clockwise": 118.7076,
+      "pickup_clearance_cm": 1.5529,
+      "pickup_safe": true,
+      "actions": [
+        "MOVE_XY_PICK",
+        "Z_DOWN",
+        "MAGNET_ON",
+        "Z_UP",
+        "ROTATE",
+        "MOVE_XY_PLACE",
+        "Z_DOWN",
+        "MAGNET_OFF",
+        "Z_UP",
+        "ROTATE_HOME"
+      ]
+    }
+  ]
+}

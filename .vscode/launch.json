@@ -1,0 +1,27 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "拼图可视化演示",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/puzzle_visual_demo.py",
+      "console": "integratedTerminal",
+      "python": "D:\\label\\python\\python.exe"
+    },
+    {
+      "name": "拼图批量验证",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/puzzle_solver_validation.py",
+      "args": [
+        "--trials",
+        "1000",
+        "--negative-trials",
+        "500"
+      ],
+      "console": "integratedTerminal",
+      "python": "D:\\label\\python\\python.exe"
+    }
+  ]
+}

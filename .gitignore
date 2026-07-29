@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+.venv/
+venv/
+env/
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+*.tmp
+*.log
+
+# Generated/debug outputs can be recreated from scripts.
+puzzle_validation_output/
+puzzle_motion_v2/pc_simulator/v3_validation/*.mp4
+puzzle_motion_v2/pc_simulator/demo_motion_simulation.mp4

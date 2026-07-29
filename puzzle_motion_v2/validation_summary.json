@@ -1,0 +1,14 @@
+{
+  "seed": 20260729,
+  "positive_trials": 1000,
+  "solved": 1000,
+  "success_rate": 1.0,
+  "negative_trials": 1000,
+  "false_acceptances": 0,
+  "unsafe_pickup_plans": 6,
+  "target_bounds_failures": 0,
+  "maximum_command_vertex_error_mm": 0.00219,
+  "mean_solve_ms_pc": 27.28,
+  "max_solve_ms_pc": 547.68,
+  "note": "Synthetic geometry regression; not a substitute for real MaixCAM and mechanism tests."
+}

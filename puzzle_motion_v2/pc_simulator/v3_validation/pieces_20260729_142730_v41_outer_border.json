@@ -1,0 +1,2063 @@
+{
+  "nodes": 32,
+  "solution": true,
+  "diagnostics": {
+    "version": "v4.0-card-pattern",
+    "seam_family_count": 44,
+    "enumerated_topology_count": 766,
+    "optimized_topology_count": 10,
+    "evaluated_layouts": 32,
+    "search_mode": "full",
+    "fast_pool_topology_count": 186,
+    "early_accepted": false,
+    "elapsed_seconds": 0.5767,
+    "stage_seconds": {
+      "seam_families": 0.0025,
+      "topology_enumeration": 0.0196,
+      "coarse_ranking": 0.241,
+      "overlap_ranking": 0.0637,
+      "pose_optimization": 0.2385
+    },
+    "stage_deadline_hit": {
+      "topology_enumeration": false,
+      "coarse_ranking": false,
+      "overlap_ranking": false
+    },
+    "timed_out": false,
+    "best_score": 0.129741,
+    "best_iou": 0.969337,
+    "best_overlap_ratio": 0.007487,
+    "best_seam_rms_cm": 0.034561,
+    "best_texture_score": 0.293581,
+    "best_texture_confidence": 1.0,
+    "best_source_texture_score": 0.293581,
+    "best_layout_texture_score": 0.293581,
+    "best_source_seam_score": 0.41349,
+    "best_source_perimeter_score": 0.437407,
+    "best_layout_seam_score": 0.445591,
+    "best_layout_symmetry_score": 0.19878,
+    "best_layout_contact_segments": 5,
+    "white_card_confidence": 1.0,
+    "best_enumeration_rank": 228,
+    "second_score": 0.147704,
+    "second_iou": 0.970505,
+    "second_texture_score": 0.373406,
+    "second_texture_confidence": 1.0,
+    "second_source_texture_score": 0.373406,
+    "second_layout_texture_score": 0.373406,
+    "second_layout_seam_score": 0.463092,
+    "second_source_perimeter_score": 0.436294,
+    "second_layout_symmetry_score": 0.303645,
+    "texture_score_margin": 0.079824,
+    "layout_seam_score_margin": 0.017502,
+    "score_margin": 0.017963,
+    "ambiguity_resolved_by": "card_pattern",
+    "size_pass": "card_aspect",
+    "target_aspect_ratio_range": [
+      1.45,
+      1.61
+    ]
+  },
+  "candidates": [
+    {
+      "iou": 0.9693369584208938,
+      "overlap": 0.007486889597556625,
+      "width": 5.727897562730324,
+      "height": 8.584258857019918,
+      "score": 0.29358125583303085,
+      "confidence": 1.0,
+      "segments": 5,
+      "seam_score": 0.4455906923074325,
+      "symmetry_score": 0.19877975960035518,
+      "symmetry_confidence": 0.9765234765234765,
+      "perimeter_score": 0.30192351121901584,
+      "perimeter_confidence": 0.9807390256703633,
+      "perimeter_edges": 7,
+      "contact_segments": 5,
+      "source_score": 0.4266447193998929,
+      "source_seam": 0.413490358673921,
+      "source_perimeter": 0.43740737817568814,
+      "current_texture": 0.366766160794805,
+      "current_total": 0.14608527891749784,
+      "centroids": {
+        "1": [
+          -0.369374,
+          -0.64428
+        ],
+        "2": [
+          3.798641,
+          -0.14601
+        ],
+        "3": [
+          3.025301,
+          2.405952
+        ],
+        "4": [
+          -0.436659,
+          2.173272
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_00.jpg"
+    },
+    {
+      "iou": 0.9683759155757709,
+      "overlap": 0.0007475235630223099,
+      "width": 5.726722949564801,
+      "height": 8.65289926332476,
+      "score": 0.38095186874193643,
+      "confidence": 1.0,
+      "segments": 4,
+      "seam_score": 0.40630279898755806,
+      "symmetry_score": 0.20131036395200055,
+      "symmetry_confidence": 0.9763313609467456,
+      "perimeter_score": 0.43740737817568814,
+      "perimeter_confidence": 0.9856503095236138,
+      "perimeter_edges": 8,
+      "contact_segments": 4,
+      "source_score": 0.4266447193998929,
+      "source_seam": 0.413490358673921,
+      "source_perimeter": 0.43740737817568814,
+      "current_texture": 0.4060829366038125,
+      "current_total": 0.14659809673043458,
+      "centroids": {
+        "1": [
+          3.978181,
+          -0.65907
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          3.910896,
+          2.158482
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_01.jpg"
+    },
+    {
+      "iou": 0.9707307662660176,
+      "overlap": 0.0007401888168790029,
+      "width": 5.726920911090003,
+      "height": 8.63167357707576,
+      "score": 0.4064738914140422,
+      "confidence": 1.0,
+      "segments": 4,
+      "seam_score": 0.42521256030087096,
+      "symmetry_score": 0.30726628932781225,
+      "symmetry_confidence": 0.9585798816568047,
+      "perimeter_score": 0.43629353019368294,
+      "perimeter_confidence": 0.9845468627840509,
+      "perimeter_edges": 8,
+      "contact_segments": 4,
+      "source_score": 0.43501103932805996,
+      "source_seam": 0.4334435504922985,
+      "source_perimeter": 0.43629353019368294,
+      "current_texture": 0.422169322766752,
+      "current_total": 0.14873496509736725,
+      "centroids": {
+        "1": [
+          3.9757,
+          -0.649019
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          3.912579,
+          2.163926
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_02.jpg"
+    },
+    {
+      "iou": 0.9707307662660176,
+      "overlap": 0.0007401888168790029,
+      "width": 5.726920911090003,
+      "height": 8.63167357707576,
+      "score": 0.4064738914140422,
+      "confidence": 1.0,
+      "segments": 4,
+      "seam_score": 0.42521256030087096,
+      "symmetry_score": 0.30726628932781225,
+      "symmetry_confidence": 0.9585798816568047,
+      "perimeter_score": 0.43629353019368294,
+      "perimeter_confidence": 0.9845468627840509,
+      "perimeter_edges": 8,
+      "contact_segments": 4,
+      "source_score": 0.43501103932805996,
+      "source_seam": 0.4334435504922985,
+      "source_perimeter": 0.43629353019368294,
+      "current_texture": 0.422169322766752,
+      "current_total": 0.14873496509736725,
+      "centroids": {
+        "1": [
+          3.9757,
+          -0.649019
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          3.912579,
+          2.163926
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_03.jpg"
+    },
+    {
+      "iou": 0.9632486136168006,
+      "overlap": 0.001739987587312233,
+      "width": 5.726919814237004,
+      "height": 8.69001941979532,
+      "score": 0.37593913351103286,
+      "confidence": 1.0,
+      "segments": 4,
+      "seam_score": 0.4386262632521778,
+      "symmetry_score": 0.34164691378625345,
+      "symmetry_confidence": 0.9551282051282052,
+      "perimeter_score": 0.3770284473268782,
+      "perimeter_confidence": 0.9764061195757303,
+      "perimeter_edges": 8,
+      "contact_segments": 4,
+      "source_score": 0.41044792042256406,
+      "source_seam": 0.45129394309506893,
+      "source_perimeter": 0.3770284473268782,
+      "current_texture": 0.394918966312375,
+      "current_total": 0.15028667584909522,
+      "centroids": {
+        "1": [
+          3.890457,
+          2.131371
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          4.000608,
+          -0.660115
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_04.jpg"
+    },
+    {
+      "iou": 0.9705053478361985,
+      "overlap": 0.005912390974858891,
+      "width": 5.727384345634961,
+      "height": 8.588295257342619,
+      "score": 0.3734055731704684,
+      "confidence": 1.0,
+      "segments": 5,
+      "seam_score": 0.4630924259925003,
+      "symmetry_score": 0.30364492999695913,
+      "symmetry_confidence": 0.9585414585414586,
+      "perimeter_score": 0.3820263020751862,
+      "perimeter_confidence": 0.9814817570628236,
+      "perimeter_edges": 7,
+      "contact_segments": 5,
+      "source_score": 0.43501103932805996,
+      "source_seam": 0.4334435504922985,
+      "source_perimeter": 0.43629353019368294,
+      "current_texture": 0.40728857955714376,
+      "current_total": 0.15358651909706192,
+      "centroids": {
+        "1": [
+          -0.396284,
+          -0.653257
+        ],
+        "2": [
+          3.786772,
+          -0.128018
+        ],
+        "3": [
+          3.013432,
+          2.423944
+        ],
+        "4": [
+          -0.459406,
+          2.159688
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_05.jpg"
+    },
+    {
+      "iou": 0.9705053478361985,
+      "overlap": 0.005912390974858891,
+      "width": 5.727384345634961,
+      "height": 8.588295257342619,
+      "score": 0.3734055731704684,
+      "confidence": 1.0,
+      "segments": 5,
+      "seam_score": 0.4630924259925003,
+      "symmetry_score": 0.30364492999695913,
+      "symmetry_confidence": 0.9585414585414586,
+      "perimeter_score": 0.3820263020751862,
+      "perimeter_confidence": 0.9814817570628236,
+      "perimeter_edges": 7,
+      "contact_segments": 5,
+      "source_score": 0.43501103932805996,
+      "source_seam": 0.4334435504922985,
+      "source_perimeter": 0.43629353019368294,
+      "current_texture": 0.40728857955714376,
+      "current_total": 0.15358651909706192,
+      "centroids": {
+        "1": [
+          -0.396284,
+          -0.653257
+        ],
+        "2": [
+          3.786772,
+          -0.128018
+        ],
+        "3": [
+          3.013432,
+          2.423944
+        ],
+        "4": [
+          -0.459406,
+          2.159688
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_06.jpg"
+    },
+    {
+      "iou": 0.9665542463895178,
+      "overlap": 0.0010127023304907228,
+      "width": 5.726575332288462,
+      "height": 8.667130224358381,
+      "score": 0.4143661701407334,
+      "confidence": 1.0,
+      "segments": 4,
+      "seam_score": 0.3888712243957842,
+      "symmetry_score": 0.2599967998260057,
+      "symmetry_confidence": 0.9768244575936884,
+      "perimeter_score": 0.47101341264862523,
+      "perimeter_confidence": 0.9813187584310373,
+      "perimeter_edges": 8,
+      "contact_segments": 4,
+      "source_score": 0.4439798544764684,
+      "source_seam": 0.4109388389327212,
+      "source_perimeter": 0.47101341264862523,
+      "current_texture": 0.43065369652538765,
+      "current_total": 0.15575038259942497,
+      "centroids": {
+        "1": [
+          3.975843,
+          -0.695212
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          3.915481,
+          2.105935
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_07.jpg"
+    },
+    {
+      "iou": 0.9665542463895178,
+      "overlap": 0.0010127023304907228,
+      "width": 5.726575332288462,
+      "height": 8.667130224358381,
+      "score": 0.4143661701407334,
+      "confidence": 1.0,
+      "segments": 4,
+      "seam_score": 0.3888712243957842,
+      "symmetry_score": 0.2599967998260057,
+      "symmetry_confidence": 0.9768244575936884,
+      "perimeter_score": 0.47101341264862523,
+      "perimeter_confidence": 0.9813187584310373,
+      "perimeter_edges": 8,
+      "contact_segments": 4,
+      "source_score": 0.4439798544764684,
+      "source_seam": 0.4109388389327212,
+      "source_perimeter": 0.47101341264862523,
+      "current_texture": 0.43065369652538765,
+      "current_total": 0.15575038259942497,
+      "centroids": {
+        "1": [
+          3.975843,
+          -0.695212
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          3.915481,
+          2.105935
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_08.jpg"
+    },
+    {
+      "iou": 0.963306554739553,
+      "overlap": 0.006658182754340346,
+      "width": 5.727005783602277,
+      "height": 8.646555802066407,
+      "score": 0.36478011048966813,
+      "confidence": 1.0,
+      "segments": 5,
+      "seam_score": 0.42612286260756244,
+      "symmetry_score": 0.3408836631040939,
+      "symmetry_confidence": 0.9674556213017751,
+      "perimeter_score": 0.36298737219099203,
+      "perimeter_confidence": 0.9832623193395172,
+      "perimeter_edges": 7,
+      "contact_segments": 5,
+      "source_score": 0.41044792042256406,
+      "source_seam": 0.45129394309506893,
+      "source_perimeter": 0.3770284473268782,
+      "current_texture": 0.3898974059527609,
+      "current_total": 0.1571836296095987,
+      "centroids": {
+        "1": [
+          -0.456755,
+          2.127271
+        ],
+        "2": [
+          3.845062,
+          -0.128071
+        ],
+        "3": [
+          3.071722,
+          2.423891
+        ],
+        "4": [
+          -0.346604,
+          -0.664215
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_09.jpg"
+    },
+    {
+      "iou": 0.9682827614669047,
+      "overlap": 0.0016515505935583807,
+      "width": 5.726834523022919,
+      "height": 8.645734215455386,
+      "score": 0.4368897100922158,
+      "confidence": 1.0,
+      "segments": 4,
+      "seam_score": 0.3855916835124607,
+      "symmetry_score": 0.36347882407276144,
+      "symmetry_confidence": 0.9595660749506904,
+      "perimeter_score": 0.46998296659734035,
+      "perimeter_confidence": 0.9802174958953742,
+      "perimeter_edges": 8,
+      "contact_segments": 4,
+      "source_score": 0.4426506434991873,
+      "source_seam": 0.409244470823667,
+      "source_perimeter": 0.46998296659734035,
+      "current_texture": 0.44005822346605017,
+      "current_total": 0.15774117711263858,
+      "centroids": {
+        "1": [
+          3.973427,
+          -0.684819
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          3.916906,
+          2.111649
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_10.jpg"
+    },
+    {
+      "iou": 0.9682827614669047,
+      "overlap": 0.0016515505935583807,
+      "width": 5.726834523022919,
+      "height": 8.645734215455386,
+      "score": 0.4368897100922158,
+      "confidence": 1.0,
+      "segments": 4,
+      "seam_score": 0.3855916835124607,
+      "symmetry_score": 0.36347882407276144,
+      "symmetry_confidence": 0.9595660749506904,
+      "perimeter_score": 0.46998296659734035,
+      "perimeter_confidence": 0.9802174958953742,
+      "perimeter_edges": 8,
+      "contact_segments": 4,
+      "source_score": 0.4426506434991873,
+      "source_seam": 0.409244470823667,
+      "source_perimeter": 0.46998296659734035,
+      "current_texture": 0.44005822346605017,
+      "current_total": 0.15774117711263858,
+      "centroids": {
+        "1": [
+          3.973427,
+          -0.684819
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          3.916906,
+          2.111649
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_11.jpg"
+    },
+    {
+      "iou": 0.9661985875592517,
+      "overlap": 0.007200101621721135,
+      "width": 5.727693014759312,
+      "height": 8.6149380685921,
+      "score": 0.3558085655618867,
+      "confidence": 1.0,
+      "segments": 5,
+      "seam_score": 0.40174548418169576,
+      "symmetry_score": 0.2732035013379329,
+      "symmetry_confidence": 0.967948717948718,
+      "perimeter_score": 0.3760865872822581,
+      "perimeter_confidence": 0.985199215181613,
+      "perimeter_edges": 7,
+      "contact_segments": 5,
+      "source_score": 0.4439798544764684,
+      "source_seam": 0.4109388389327212,
+      "source_perimeter": 0.47101341264862523,
+      "current_texture": 0.4043027744649067,
+      "current_total": 0.15924636204784812,
+      "centroids": {
+        "1": [
+          -0.36812,
+          -0.670526
+        ],
+        "2": [
+          3.807995,
+          -0.155458
+        ],
+        "3": [
+          3.034656,
+          2.396504
+        ],
+        "4": [
+          -0.428483,
+          2.13062
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_12.jpg"
+    },
+    {
+      "iou": 0.9661985875592517,
+      "overlap": 0.007200101621721135,
+      "width": 5.727693014759312,
+      "height": 8.6149380685921,
+      "score": 0.3558085655618867,
+      "confidence": 1.0,
+      "segments": 5,
+      "seam_score": 0.40174548418169576,
+      "symmetry_score": 0.2732035013379329,
+      "symmetry_confidence": 0.967948717948718,
+      "perimeter_score": 0.3760865872822581,
+      "perimeter_confidence": 0.985199215181613,
+      "perimeter_edges": 7,
+      "contact_segments": 5,
+      "source_score": 0.4439798544764684,
+      "source_seam": 0.4109388389327212,
+      "source_perimeter": 0.47101341264862523,
+      "current_texture": 0.4043027744649067,
+      "current_total": 0.15924636204784812,
+      "centroids": {
+        "1": [
+          -0.36812,
+          -0.670526
+        ],
+        "2": [
+          3.807995,
+          -0.155458
+        ],
+        "3": [
+          3.034656,
+          2.396504
+        ],
+        "4": [
+          -0.428483,
+          2.13062
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_13.jpg"
+    },
+    {
+      "iou": 0.964988937881387,
+      "overlap": 0.0011025742772916617,
+      "width": 5.727009295528289,
+      "height": 8.679750433003441,
+      "score": 0.4277808134078369,
+      "confidence": 1.0,
+      "segments": 4,
+      "seam_score": 0.42202262435548027,
+      "symmetry_score": 0.34407873405289563,
+      "symmetry_confidence": 0.9516765285996055,
+      "perimeter_score": 0.45682706641068194,
+      "perimeter_confidence": 0.9780739193870198,
+      "perimeter_edges": 8,
+      "contact_segments": 4,
+      "source_score": 0.44697677869972885,
+      "source_seam": 0.43493753816411945,
+      "source_perimeter": 0.45682706641068194,
+      "current_texture": 0.4383385943183775,
+      "current_total": 0.1596202447991546,
+      "centroids": {
+        "1": [
+          3.888171,
+          2.151044
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          4.002249,
+          -0.646271
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_14.jpg"
+    },
+    {
+      "iou": 0.964988937881387,
+      "overlap": 0.0011025742772916617,
+      "width": 5.727009295528289,
+      "height": 8.679750433003441,
+      "score": 0.4277808134078369,
+      "confidence": 1.0,
+      "segments": 4,
+      "seam_score": 0.42202262435548027,
+      "symmetry_score": 0.34407873405289563,
+      "symmetry_confidence": 0.9516765285996055,
+      "perimeter_score": 0.45682706641068194,
+      "perimeter_confidence": 0.9780739193870198,
+      "perimeter_edges": 8,
+      "contact_segments": 4,
+      "source_score": 0.44697677869972885,
+      "source_seam": 0.43493753816411945,
+      "source_perimeter": 0.45682706641068194,
+      "current_texture": 0.4383385943183775,
+      "current_total": 0.1596202447991546,
+      "centroids": {
+        "1": [
+          3.888171,
+          2.151044
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          4.002249,
+          -0.646271
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_15.jpg"
+    },
+    {
+      "iou": 0.9629121210113883,
+      "overlap": 0.005488810244647159,
+      "width": 5.727005785651482,
+      "height": 8.660280638615818,
+      "score": 0.36750130911925066,
+      "confidence": 1.0,
+      "segments": 5,
+      "seam_score": 0.46789520718812444,
+      "symmetry_score": 0.3356049719544192,
+      "symmetry_confidence": 0.9585798816568047,
+      "perimeter_score": 0.36167727429091506,
+      "perimeter_confidence": 0.9797825239681047,
+      "perimeter_edges": 7,
+      "contact_segments": 5,
+      "source_score": 0.44697677869972885,
+      "source_seam": 0.43493753816411945,
+      "source_perimeter": 0.45682706641068194,
+      "current_texture": 0.4112128173885137,
+      "current_total": 0.16155844527329566,
+      "centroids": {
+        "1": [
+          -0.473002,
+          2.128603
+        ],
+        "2": [
+          3.843795,
+          -0.110574
+        ],
+        "3": [
+          3.070455,
+          2.441388
+        ],
+        "4": [
+          -0.358923,
+          -0.668712
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_16.jpg"
+    },
+    {
+      "iou": 0.9629121210113883,
+      "overlap": 0.005488810244647159,
+      "width": 5.727005785651482,
+      "height": 8.660280638615818,
+      "score": 0.36750130911925066,
+      "confidence": 1.0,
+      "segments": 5,
+      "seam_score": 0.46789520718812444,
+      "symmetry_score": 0.3356049719544192,
+      "symmetry_confidence": 0.9585798816568047,
+      "perimeter_score": 0.36167727429091506,
+      "perimeter_confidence": 0.9797825239681047,
+      "perimeter_edges": 7,
+      "contact_segments": 5,
+      "source_score": 0.44697677869972885,
+      "source_seam": 0.43493753816411945,
+      "source_perimeter": 0.45682706641068194,
+      "current_texture": 0.4112128173885137,
+      "current_total": 0.16155844527329566,
+      "centroids": {
+        "1": [
+          -0.473002,
+          2.128603
+        ],
+        "2": [
+          3.843795,
+          -0.110574
+        ],
+        "3": [
+          3.070455,
+          2.441388
+        ],
+        "4": [
+          -0.358923,
+          -0.668712
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_17.jpg"
+    },
+    {
+      "iou": 0.9608047576240952,
+      "overlap": 0.0012399837911745756,
+      "width": 5.726782558109681,
+      "height": 8.71669552707939,
+      "score": 0.42873537258784283,
+      "confidence": 1.0,
+      "segments": 4,
+      "seam_score": 0.40288282155409344,
+      "symmetry_score": 0.3475437899947913,
+      "symmetry_confidence": 0.9501972386587771,
+      "perimeter_score": 0.4703227222036203,
+      "perimeter_confidence": 0.8839307573239413,
+      "perimeter_edges": 7,
+      "contact_segments": 4,
+      "source_score": 0.4339554304084219,
+      "source_seam": 0.41375486192289057,
+      "source_perimeter": 0.45048316826022017,
+      "current_texture": 0.4316064043891613,
+      "current_total": 0.1621530080498667,
+      "centroids": {
+        "1": [
+          3.888124,
+          2.109384
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          4.005426,
+          -0.694882
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_18.jpg"
+    },
+    {
+      "iou": 0.9608047576240952,
+      "overlap": 0.0012399837911745756,
+      "width": 5.726782558109681,
+      "height": 8.71669552707939,
+      "score": 0.42873537258784283,
+      "confidence": 1.0,
+      "segments": 4,
+      "seam_score": 0.40288282155409344,
+      "symmetry_score": 0.3475437899947913,
+      "symmetry_confidence": 0.9501972386587771,
+      "perimeter_score": 0.4703227222036203,
+      "perimeter_confidence": 0.8839307573239413,
+      "perimeter_edges": 7,
+      "contact_segments": 4,
+      "source_score": 0.4339554304084219,
+      "source_seam": 0.41375486192289057,
+      "source_perimeter": 0.45048316826022017,
+      "current_texture": 0.4316064043891613,
+      "current_total": 0.1621530080498667,
+      "centroids": {
+        "1": [
+          3.888124,
+          2.109384
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          4.005426,
+          -0.694882
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_19.jpg"
+    },
+    {
+      "iou": 0.9700417997620707,
+      "overlap": 0.006044143249052362,
+      "width": 5.727508376532137,
+      "height": 8.59107444715374,
+      "score": 0.42785249416177945,
+      "confidence": 1.0,
+      "segments": 5,
+      "seam_score": 0.3925137695720956,
+      "symmetry_score": 0.3606423216032234,
+      "symmetry_confidence": 0.9595404595404595,
+      "perimeter_score": 0.4555839684978828,
+      "perimeter_confidence": 0.9878377854022617,
+      "perimeter_edges": 7,
+      "contact_segments": 5,
+      "source_score": 0.4426506434991873,
+      "source_seam": 0.409244470823667,
+      "source_perimeter": 0.46998296659734035,
+      "current_texture": 0.4359914762973538,
+      "current_total": 0.16231085712457738,
+      "centroids": {
+        "1": [
+          -0.395529,
+          -0.679331
+        ],
+        "2": [
+          3.796069,
+          -0.137169
+        ],
+        "3": [
+          3.022729,
+          2.414793
+        ],
+        "4": [
+          -0.45205,
+          2.117136
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_20.jpg"
+    },
+    {
+      "iou": 0.9700417997620707,
+      "overlap": 0.006044143249052362,
+      "width": 5.727508376532137,
+      "height": 8.59107444715374,
+      "score": 0.42785249416177945,
+      "confidence": 1.0,
+      "segments": 5,
+      "seam_score": 0.3925137695720956,
+      "symmetry_score": 0.3606423216032234,
+      "symmetry_confidence": 0.9595404595404595,
+      "perimeter_score": 0.4555839684978828,
+      "perimeter_confidence": 0.9878377854022617,
+      "perimeter_edges": 7,
+      "contact_segments": 5,
+      "source_score": 0.4426506434991873,
+      "source_seam": 0.409244470823667,
+      "source_perimeter": 0.46998296659734035,
+      "current_texture": 0.4359914762973538,
+      "current_total": 0.16231085712457738,
+      "centroids": {
+        "1": [
+          -0.395529,
+          -0.679331
+        ],
+        "2": [
+          3.796069,
+          -0.137169
+        ],
+        "3": [
+          3.022729,
+          2.414793
+        ],
+        "4": [
+          -0.45205,
+          2.117136
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_21.jpg"
+    },
+    {
+      "iou": 0.9613019208134949,
+      "overlap": 0.0011550096516561106,
+      "width": 5.726835250221087,
+      "height": 8.712848515975859,
+      "score": 0.44413686498899635,
+      "confidence": 1.0,
+      "segments": 4,
+      "seam_score": 0.32404478980909024,
+      "symmetry_score": 0.3468392839247067,
+      "symmetry_confidence": 0.960552268244576,
+      "perimeter_score": 0.5137765316122161,
+      "perimeter_confidence": 0.8833845598552611,
+      "perimeter_edges": 7,
+      "contact_segments": 4,
+      "source_score": 0.44327006144097325,
+      "source_seam": 0.33765691963658034,
+      "source_perimeter": 0.5296808138263857,
+      "current_texture": 0.4436601230375836,
+      "current_total": 0.16488643004484396,
+      "centroids": {
+        "1": [
+          3.88558,
+          2.129305
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          4.007118,
+          -0.680715
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_22.jpg"
+    },
+    {
+      "iou": 0.9613019208134949,
+      "overlap": 0.0011550096516561106,
+      "width": 5.726835250221087,
+      "height": 8.712848515975859,
+      "score": 0.44413686498899635,
+      "confidence": 1.0,
+      "segments": 4,
+      "seam_score": 0.32404478980909024,
+      "symmetry_score": 0.3468392839247067,
+      "symmetry_confidence": 0.960552268244576,
+      "perimeter_score": 0.5137765316122161,
+      "perimeter_confidence": 0.8833845598552611,
+      "perimeter_edges": 7,
+      "contact_segments": 4,
+      "source_score": 0.44327006144097325,
+      "source_seam": 0.33765691963658034,
+      "source_perimeter": 0.5296808138263857,
+      "current_texture": 0.4436601230375836,
+      "current_total": 0.16488643004484396,
+      "centroids": {
+        "1": [
+          3.88558,
+          2.129305
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          4.007118,
+          -0.680715
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_23.jpg"
+    },
+    {
+      "iou": 0.9615764318322455,
+      "overlap": 0.0074359944079274145,
+      "width": 5.7281966432621205,
+      "height": 8.653531129212556,
+      "score": 0.38915585594529034,
+      "confidence": 1.0,
+      "segments": 5,
+      "seam_score": 0.4327796701245908,
+      "symmetry_score": 0.346940333806707,
+      "symmetry_confidence": 0.9674556213017751,
+      "perimeter_score": 0.3964334732578325,
+      "perimeter_confidence": 0.9793340645319538,
+      "perimeter_edges": 7,
+      "contact_segments": 5,
+      "source_score": 0.4339554304084219,
+      "source_seam": 0.41375486192289057,
+      "source_perimeter": 0.45048316826022017,
+      "current_texture": 0.4137956219000127,
+      "current_total": 0.16692753279323466,
+      "centroids": {
+        "1": [
+          -0.426144,
+          2.11942
+        ],
+        "2": [
+          3.864741,
+          -0.141734
+        ],
+        "3": [
+          3.091401,
+          2.410228
+        ],
+        "4": [
+          -0.308843,
+          -0.684846
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_24.jpg"
+    },
+    {
+      "iou": 0.9615764318322455,
+      "overlap": 0.0074359944079274145,
+      "width": 5.7281966432621205,
+      "height": 8.653531129212556,
+      "score": 0.38915585594529034,
+      "confidence": 1.0,
+      "segments": 5,
+      "seam_score": 0.4327796701245908,
+      "symmetry_score": 0.346940333806707,
+      "symmetry_confidence": 0.9674556213017751,
+      "perimeter_score": 0.3964334732578325,
+      "perimeter_confidence": 0.9793340645319538,
+      "perimeter_edges": 7,
+      "contact_segments": 5,
+      "source_score": 0.4339554304084219,
+      "source_seam": 0.41375486192289057,
+      "source_perimeter": 0.45048316826022017,
+      "current_texture": 0.4137956219000127,
+      "current_total": 0.16692753279323466,
+      "centroids": {
+        "1": [
+          -0.426144,
+          2.11942
+        ],
+        "2": [
+          3.864741,
+          -0.141734
+        ],
+        "3": [
+          3.091401,
+          2.410228
+        ],
+        "4": [
+          -0.308843,
+          -0.684846
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_25.jpg"
+    },
+    {
+      "iou": 0.9612214022044454,
+      "overlap": 0.007507533382955887,
+      "width": 5.728043232521558,
+      "height": 8.656335231722146,
+      "score": 0.39247274799763054,
+      "confidence": 1.0,
+      "segments": 5,
+      "seam_score": 0.47781072588533796,
+      "symmetry_score": 0.34388750235103427,
+      "symmetry_confidence": 0.967948717948718,
+      "perimeter_score": 0.39520592312303016,
+      "perimeter_confidence": 0.9766112446402948,
+      "perimeter_edges": 7,
+      "contact_segments": 5,
+      "source_score": 0.44327006144097325,
+      "source_seam": 0.33765691963658034,
+      "source_perimeter": 0.5296808138263857,
+      "current_texture": 0.420411270391469,
+      "current_total": 0.16925656025619096,
+      "centroids": {
+        "1": [
+          -0.432003,
+          2.13459
+        ],
+        "2": [
+          3.863252,
+          -0.13712
+        ],
+        "3": [
+          3.089912,
+          2.414842
+        ],
+        "4": [
+          -0.310465,
+          -0.67543
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_26.jpg"
+    },
+    {
+      "iou": 0.9612214022044454,
+      "overlap": 0.007507533382955887,
+      "width": 5.728043232521558,
+      "height": 8.656335231722146,
+      "score": 0.39247274799763054,
+      "confidence": 1.0,
+      "segments": 5,
+      "seam_score": 0.47781072588533796,
+      "symmetry_score": 0.34388750235103427,
+      "symmetry_confidence": 0.967948717948718,
+      "perimeter_score": 0.39520592312303016,
+      "perimeter_confidence": 0.9766112446402948,
+      "perimeter_edges": 7,
+      "contact_segments": 5,
+      "source_score": 0.44327006144097325,
+      "source_seam": 0.33765691963658034,
+      "source_perimeter": 0.5296808138263857,
+      "current_texture": 0.420411270391469,
+      "current_total": 0.16925656025619096,
+      "centroids": {
+        "1": [
+          -0.432003,
+          2.13459
+        ],
+        "2": [
+          3.863252,
+          -0.13712
+        ],
+        "3": [
+          3.089912,
+          2.414842
+        ],
+        "4": [
+          -0.310465,
+          -0.67543
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_27.jpg"
+    },
+    {
+      "iou": 0.955161452356244,
+      "overlap": 0.012355945831870385,
+      "width": 5.727005785651482,
+      "height": 8.670269792157942,
+      "score": 0.29831663977282197,
+      "confidence": 1.0,
+      "segments": 5,
+      "seam_score": 0.44206822622027653,
+      "symmetry_score": 0.2276712304314666,
+      "symmetry_confidence": 0.9497041420118343,
+      "perimeter_score": 0.2973739273447868,
+      "perimeter_confidence": 0.8301563891174821,
+      "perimeter_edges": 6,
+      "contact_segments": 5,
+      "source_score": 0.4312549883290787,
+      "source_seam": 0.40104433706115084,
+      "source_perimeter": 0.4559727939119287,
+      "current_texture": 0.3714327314787632,
+      "current_total": 0.16984482037198942,
+      "centroids": {
+        "1": [
+          -0.367854,
+          -0.644242
+        ],
+        "2": [
+          3.841709,
+          -0.096228
+        ],
+        "3": [
+          3.068369,
+          2.455734
+        ],
+        "4": [
+          -0.449308,
+          2.044226
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_28.jpg"
+    },
+    {
+      "iou": 0.9559363764704526,
+      "overlap": 0.011554721598619847,
+      "width": 5.727005787700697,
+      "height": 8.670269323535292,
+      "score": 0.3838076795026741,
+      "confidence": 1.0,
+      "segments": 4,
+      "seam_score": 0.4098802792746816,
+      "symmetry_score": 0.22425004785704178,
+      "symmetry_confidence": 0.9428007889546351,
+      "perimeter_score": 0.45627111433930817,
+      "perimeter_confidence": 0.839657434588636,
+      "perimeter_edges": 7,
+      "contact_segments": 4,
+      "source_score": 0.4312549883290787,
+      "source_seam": 0.40104433706115084,
+      "source_perimeter": 0.4559727939119287,
+      "current_texture": 0.4099036993571966,
+      "current_total": 0.1784796860672162,
+      "centroids": {
+        "1": [
+          3.984712,
+          -0.60683
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          3.903258,
+          2.081638
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_29.jpg"
+    },
+    {
+      "iou": 0.9565095073019853,
+      "overlap": 0.012701791057127897,
+      "width": 5.727005787700697,
+      "height": 8.655018553784858,
+      "score": 0.41398474318498035,
+      "confidence": 1.0,
+      "segments": 4,
+      "seam_score": 0.4370491952276586,
+      "symmetry_score": 0.3194197970358227,
+      "symmetry_confidence": 0.9403353057199211,
+      "perimeter_score": 0.4550218579329737,
+      "perimeter_confidence": 0.8380050590337873,
+      "perimeter_edges": 7,
+      "contact_segments": 4,
+      "source_score": 0.4324889803722899,
+      "source_seam": 0.40378654160162014,
+      "source_perimeter": 0.4559727939119287,
+      "current_texture": 0.4241620736380006,
+      "current_total": 0.18384891811377235,
+      "centroids": {
+        "1": [
+          3.980464,
+          -0.591504
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          3.906441,
+          2.08458
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_30.jpg"
+    },
+    {
+      "iou": 0.9546717325180729,
+      "overlap": 0.014598668236319301,
+      "width": 5.727005785651482,
+      "height": 8.655019022407513,
+      "score": 0.3817616227218882,
+      "confidence": 1.0,
+      "segments": 5,
+      "seam_score": 0.4633992782851982,
+      "symmetry_score": 0.3202992915570869,
+      "symmetry_confidence": 0.9408284023668639,
+      "perimeter_score": 0.3914360420571072,
+      "perimeter_confidence": 0.8320162652083226,
+      "perimeter_edges": 6,
+      "contact_segments": 5,
+      "source_score": 0.4324889803722899,
+      "source_seam": 0.40378654160162014,
+      "source_perimeter": 0.4559727939119287,
+      "current_texture": 0.40966166942960913,
+      "current_total": 0.18485127092396048,
+      "centroids": {
+        "1": [
+          -0.37121,
+          -0.628909
+        ],
+        "2": [
+          3.826458,
+          -0.096359
+        ],
+        "3": [
+          3.053118,
+          2.455603
+        ],
+        "4": [
+          -0.445233,
+          2.047175
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_31.jpg"
+    },
+    {
+      "iou": 0.9495929479946669,
+      "overlap": 0.01056933397053702,
+      "width": 5.727005785651482,
+      "height": 8.73688926160147,
+      "score": 0.40031599495398773,
+      "confidence": 1.0,
+      "segments": 5,
+      "seam_score": 0.5374542785330063,
+      "symmetry_score": 0.3446658758055444,
+      "symmetry_confidence": 0.9425511197663097,
+      "perimeter_score": 0.39520592312303016,
+      "perimeter_confidence": 0.9712422510680139,
+      "perimeter_edges": 7,
+      "contact_segments": 5,
+      "source_score": 0.43096760660441247,
+      "source_seam": 0.4004057110063371,
+      "source_perimeter": 0.4559727939119287,
+      "current_texture": 0.41717438136172136,
+      "current_total": 0.18518374653652805,
+      "centroids": {
+        "1": [
+          -0.503025,
+          2.041824
+        ],
+        "2": [
+          3.908327,
+          -0.095655
+        ],
+        "3": [
+          3.134987,
+          2.456307
+        ],
+        "4": [
+          -0.392948,
+          -0.64615
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_32.jpg"
+    },
+    {
+      "iou": 0.9493721314920471,
+      "overlap": 0.010799519777010179,
+      "width": 5.727005791799155,
+      "height": 8.736888320257696,
+      "score": 0.441055734505834,
+      "confidence": 1.0,
+      "segments": 4,
+      "seam_score": 0.30229892007145653,
+      "symmetry_score": 0.3480530209160619,
+      "symmetry_confidence": 0.9308666017526777,
+      "perimeter_score": 0.5137765316122161,
+      "perimeter_confidence": 0.8819059092542746,
+      "perimeter_edges": 7,
+      "contact_segments": 4,
+      "source_score": 0.43096760660441247,
+      "source_seam": 0.4004057110063371,
+      "source_perimeter": 0.4559727939119287,
+      "current_texture": 0.43550726416005214,
+      "current_total": 0.19092908609368478,
+      "centroids": {
+        "1": [
+          3.890529,
+          2.079589
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          4.000607,
+          -0.608385
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_33.jpg"
+    },
+    {
+      "iou": 0.9488122878363262,
+      "overlap": 0.011364075157542305,
+      "width": 5.727005785651482,
+      "height": 8.737054253459265,
+      "score": 0.41806492644233095,
+      "confidence": 1.0,
+      "segments": 5,
+      "seam_score": 0.5371201201786082,
+      "symmetry_score": 0.3567622798018844,
+      "symmetry_confidence": 0.9328140214216164,
+      "perimeter_score": 0.4170760450641048,
+      "perimeter_confidence": 0.83160162727644,
+      "perimeter_edges": 6,
+      "contact_segments": 5,
+      "source_score": 0.44526961512127505,
+      "source_seam": 0.43218795215492056,
+      "source_perimeter": 0.4559727939119287,
+      "current_texture": 0.4330275052157502,
+      "current_total": 0.19175434139190578,
+      "centroids": {
+        "1": [
+          -0.49901,
+          2.020883
+        ],
+        "2": [
+          3.908493,
+          -0.095654
+        ],
+        "3": [
+          3.135153,
+          2.456308
+        ],
+        "4": [
+          -0.395338,
+          -0.654547
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_34.jpg"
+    },
+    {
+      "iou": 0.9483828078074971,
+      "overlap": 0.011811578910407919,
+      "width": 5.727005791799155,
+      "height": 8.737054265754582,
+      "score": 0.4340291610180502,
+      "confidence": 1.0,
+      "segments": 4,
+      "seam_score": 0.40061387585287017,
+      "symmetry_score": 0.3575199668572307,
+      "symmetry_confidence": 0.9152872444011685,
+      "perimeter_score": 0.4801527939667176,
+      "perimeter_confidence": 0.8375564266063198,
+      "perimeter_edges": 7,
+      "contact_segments": 4,
+      "source_score": 0.44526961512127505,
+      "source_seam": 0.43218795215492056,
+      "source_perimeter": 0.4559727939119287,
+      "current_texture": 0.44021141077482384,
+      "current_total": 0.1949560713571471,
+      "centroids": {
+        "1": [
+          3.893942,
+          2.058642
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          3.997614,
+          -0.616787
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_35.jpg"
+    },
+    {
+      "iou": 0.7676584481460086,
+      "overlap": 0.1880145371599764,
+      "width": 5.725987574183428,
+      "height": 8.87087350075166,
+      "score": 0.3981916849397682,
+      "confidence": 1.0,
+      "segments": 1,
+      "seam_score": 0.4088487731692968,
+      "symmetry_score": 0.32204889727448427,
+      "symmetry_confidence": 0.614423076923077,
+      "perimeter_score": 0.45127266659263177,
+      "perimeter_confidence": 0.49185202866558325,
+      "perimeter_edges": 4,
+      "contact_segments": 1,
+      "source_score": 0.4263722109479346,
+      "source_seam": 0.41288478433623577,
+      "source_perimeter": 0.43740737817568814,
+      "current_texture": 0.4136909742442597,
+      "current_total": 0.6677997378143441,
+      "centroids": {
+        "1": [
+          3.928915,
+          0.848074
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          3.751266,
+          1.18952
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_36.jpg"
+    },
+    {
+      "iou": 0.7685344086744392,
+      "overlap": 0.1895183247341752,
+      "width": 5.726650380350832,
+      "height": 8.843328972421187,
+      "score": 0.4146659623089466,
+      "confidence": 1.0,
+      "segments": 1,
+      "seam_score": 0.4088487731692968,
+      "symmetry_score": 0.3795059459377974,
+      "symmetry_confidence": 0.6149038461538462,
+      "perimeter_score": 0.45127266659263177,
+      "perimeter_confidence": 0.4927594993805238,
+      "perimeter_edges": 4,
+      "contact_segments": 1,
+      "source_score": 0.4472733869709643,
+      "source_seam": 0.46069321192097484,
+      "source_perimeter": 0.43629353019368294,
+      "current_texture": 0.43260004587305634,
+      "current_total": 0.6747747562181143,
+      "centroids": {
+        "1": [
+          3.912892,
+          0.904634
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          3.71658,
+          1.228605
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_37.jpg"
+    },
+    {
+      "iou": 0.7685344086744392,
+      "overlap": 0.1895183247341752,
+      "width": 5.726650380350832,
+      "height": 8.843328972421187,
+      "score": 0.4146659623089466,
+      "confidence": 1.0,
+      "segments": 1,
+      "seam_score": 0.4088487731692968,
+      "symmetry_score": 0.3795059459377974,
+      "symmetry_confidence": 0.6149038461538462,
+      "perimeter_score": 0.45127266659263177,
+      "perimeter_confidence": 0.4927594993805238,
+      "perimeter_edges": 4,
+      "contact_segments": 1,
+      "source_score": 0.4472733869709643,
+      "source_seam": 0.46069321192097484,
+      "source_perimeter": 0.43629353019368294,
+      "current_texture": 0.43260004587305634,
+      "current_total": 0.6747747562181143,
+      "centroids": {
+        "1": [
+          3.912892,
+          0.904634
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          3.71658,
+          1.228605
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_38.jpg"
+    },
+    {
+      "iou": 0.7653366512104453,
+      "overlap": 0.19129776688532488,
+      "width": 5.725304847148002,
+      "height": 8.862863933057271,
+      "score": 0.3977569559705925,
+      "confidence": 1.0,
+      "segments": 1,
+      "seam_score": 0.4088487731692968,
+      "symmetry_score": 0.31956597908638895,
+      "symmetry_confidence": 0.6081730769230769,
+      "perimeter_score": 0.45127266659263177,
+      "perimeter_confidence": 0.4921450964838292,
+      "perimeter_edges": 4,
+      "contact_segments": 1,
+      "source_score": 0.43474151091338287,
+      "source_seam": 0.39040918657030876,
+      "source_perimeter": 0.47101341264862523,
+      "current_texture": 0.4180984611891272,
+      "current_total": 0.6769371216275626,
+      "centroids": {
+        "1": [
+          3.862469,
+          0.629739
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          3.801978,
+          0.971722
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_39.jpg"
+    },
+    {
+      "iou": 0.7653366512104453,
+      "overlap": 0.19129776688532488,
+      "width": 5.725304847148002,
+      "height": 8.862863933057271,
+      "score": 0.3977569559705925,
+      "confidence": 1.0,
+      "segments": 1,
+      "seam_score": 0.4088487731692968,
+      "symmetry_score": 0.31956597908638895,
+      "symmetry_confidence": 0.6081730769230769,
+      "perimeter_score": 0.45127266659263177,
+      "perimeter_confidence": 0.4921450964838292,
+      "perimeter_edges": 4,
+      "contact_segments": 1,
+      "source_score": 0.43474151091338287,
+      "source_seam": 0.39040918657030876,
+      "source_perimeter": 0.47101341264862523,
+      "current_texture": 0.4180984611891272,
+      "current_total": 0.6769371216275626,
+      "centroids": {
+        "1": [
+          3.862469,
+          0.629739
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          3.801978,
+          0.971722
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_40.jpg"
+    },
+    {
+      "iou": 0.7664761967012197,
+      "overlap": 0.19275053596679398,
+      "width": 5.725304847148002,
+      "height": 8.833789462885322,
+      "score": 0.4155590553462296,
+      "confidence": 1.0,
+      "segments": 1,
+      "seam_score": 0.4088487731692968,
+      "symmetry_score": 0.3825999055266166,
+      "symmetry_confidence": 0.6153846153846154,
+      "perimeter_score": 0.45127266659263177,
+      "perimeter_confidence": 0.4931279088499892,
+      "perimeter_edges": 4,
+      "contact_segments": 1,
+      "source_score": 0.44453210140138166,
+      "source_seam": 0.4134254883840989,
+      "source_perimeter": 0.46998296659734035,
+      "current_texture": 0.43149423067656323,
+      "current_total": 0.6820180990317678,
+      "centroids": {
+        "1": [
+          3.85325,
+          0.689182
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          3.772515,
+          1.015815
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_41.jpg"
+    },
+    {
+      "iou": 0.7664761967012197,
+      "overlap": 0.19275053596679398,
+      "width": 5.725304847148002,
+      "height": 8.833789462885322,
+      "score": 0.4155590553462296,
+      "confidence": 1.0,
+      "segments": 1,
+      "seam_score": 0.4088487731692968,
+      "symmetry_score": 0.3825999055266166,
+      "symmetry_confidence": 0.6153846153846154,
+      "perimeter_score": 0.45127266659263177,
+      "perimeter_confidence": 0.4931279088499892,
+      "perimeter_edges": 4,
+      "contact_segments": 1,
+      "source_score": 0.44453210140138166,
+      "source_seam": 0.4134254883840989,
+      "source_perimeter": 0.46998296659734035,
+      "current_texture": 0.43149423067656323,
+      "current_total": 0.6820180990317678,
+      "centroids": {
+        "1": [
+          3.85325,
+          0.689182
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          3.772515,
+          1.015815
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_42.jpg"
+    },
+    {
+      "iou": 0.7581406337540652,
+      "overlap": 0.19088927140607098,
+      "width": 5.725304847148002,
+      "height": 8.95150661907206,
+      "score": 0.4141556561636115,
+      "confidence": 1.0,
+      "segments": 1,
+      "seam_score": 0.4088487731692968,
+      "symmetry_score": 0.37724543800608384,
+      "symmetry_confidence": 0.5963912630579298,
+      "perimeter_score": 0.45127266659263177,
+      "perimeter_confidence": 0.4891727163206213,
+      "perimeter_edges": 4,
+      "contact_segments": 1,
+      "source_score": 0.42287625655329497,
+      "source_seam": 0.38913447557816416,
+      "source_perimeter": 0.45048316826022017,
+      "current_texture": 0.4189519863779374,
+      "current_total": 0.683677683822078,
+      "centroids": {
+        "1": [
+          3.890907,
+          0.684118
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          3.83461,
+          0.321552
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_43.jpg"
+    },
+    {
+      "iou": 0.7581406337540652,
+      "overlap": 0.19088927140607098,
+      "width": 5.725304847148002,
+      "height": 8.95150661907206,
+      "score": 0.4141556561636115,
+      "confidence": 1.0,
+      "segments": 1,
+      "seam_score": 0.4088487731692968,
+      "symmetry_score": 0.37724543800608384,
+      "symmetry_confidence": 0.5963912630579298,
+      "perimeter_score": 0.45127266659263177,
+      "perimeter_confidence": 0.4891727163206213,
+      "perimeter_edges": 4,
+      "contact_segments": 1,
+      "source_score": 0.42287625655329497,
+      "source_seam": 0.38913447557816416,
+      "source_perimeter": 0.45048316826022017,
+      "current_texture": 0.4189519863779374,
+      "current_total": 0.683677683822078,
+      "centroids": {
+        "1": [
+          3.890907,
+          0.684118
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          3.83461,
+          0.321552
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_44.jpg"
+    },
+    {
+      "iou": 0.7572585640955595,
+      "overlap": 0.18935623855828088,
+      "width": 5.725304847148002,
+      "height": 8.978913804408311,
+      "score": 0.41769393132500404,
+      "confidence": 1.0,
+      "segments": 1,
+      "seam_score": 0.4088487731692968,
+      "symmetry_score": 0.3895501599391144,
+      "symmetry_confidence": 0.5807217473884141,
+      "perimeter_score": 0.45127266659263177,
+      "perimeter_confidence": 0.48826094755443683,
+      "perimeter_edges": 4,
+      "contact_segments": 1,
+      "source_score": 0.44349419868199197,
+      "source_seam": 0.3381550023943996,
+      "source_perimeter": 0.5296808138263857,
+      "current_texture": 0.4318840783713474,
+      "current_total": 0.6855745833974953,
+      "centroids": {
+        "1": [
+          3.883411,
+          0.775199
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          3.880928,
+          0.404257
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_45.jpg"
+    },
+    {
+      "iou": 0.7572585640955595,
+      "overlap": 0.18935623855828088,
+      "width": 5.725304847148002,
+      "height": 8.978913804408311,
+      "score": 0.41769393132500404,
+      "confidence": 1.0,
+      "segments": 1,
+      "seam_score": 0.4088487731692968,
+      "symmetry_score": 0.3895501599391144,
+      "symmetry_confidence": 0.5807217473884141,
+      "perimeter_score": 0.45127266659263177,
+      "perimeter_confidence": 0.48826094755443683,
+      "perimeter_edges": 4,
+      "contact_segments": 1,
+      "source_score": 0.44349419868199197,
+      "source_seam": 0.3381550023943996,
+      "source_perimeter": 0.5296808138263857,
+      "current_texture": 0.4318840783713474,
+      "current_total": 0.6855745833974953,
+      "centroids": {
+        "1": [
+          3.883411,
+          0.775199
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          3.880928,
+          0.404257
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_46.jpg"
+    },
+    {
+      "iou": 0.7591903655569374,
+      "overlap": 0.1942888873782603,
+      "width": 5.725304847148002,
+      "height": 8.901570110913662,
+      "score": 0.41289482722685344,
+      "confidence": 1.0,
+      "segments": 1,
+      "seam_score": 0.4088487731692968,
+      "symmetry_score": 0.37287680383387,
+      "symmetry_confidence": 0.6028846153846154,
+      "perimeter_score": 0.45127266659263177,
+      "perimeter_confidence": 0.4908427639151656,
+      "perimeter_edges": 4,
+      "contact_segments": 1,
+      "source_score": 0.4089690316232393,
+      "source_seam": 0.4480075235410139,
+      "source_perimeter": 0.3770284473268782,
+      "current_texture": 0.41073563964486565,
+      "current_total": 0.6861067220866675,
+      "centroids": {
+        "1": [
+          3.818685,
+          0.874348
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          3.85464,
+          0.547059
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_47.jpg"
+    },
+    {
+      "iou": 0.7590709570415815,
+      "overlap": 0.19295878535152994,
+      "width": 5.725304847148002,
+      "height": 8.91766780650943,
+      "score": 0.42192100291504764,
+      "confidence": 1.0,
+      "segments": 1,
+      "seam_score": 0.4088487731692968,
+      "symmetry_score": 0.4049757752581949,
+      "symmetry_confidence": 0.5932692307692308,
+      "perimeter_score": 0.45127266659263177,
+      "perimeter_confidence": 0.49030315781292255,
+      "perimeter_edges": 4,
+      "contact_segments": 1,
+      "source_score": 0.4573761217305333,
+      "source_seam": 0.4580471893436851,
+      "source_perimeter": 0.45682706641068194,
+      "current_texture": 0.4414213182635648,
+      "current_total": 0.6925569471698175,
+      "centroids": {
+        "1": [
+          3.807528,
+          0.954424
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          3.88774,
+          0.626103
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_48.jpg"
+    },
+    {
+      "iou": 0.7590709570415815,
+      "overlap": 0.19295878535152994,
+      "width": 5.725304847148002,
+      "height": 8.91766780650943,
+      "score": 0.42192100291504764,
+      "confidence": 1.0,
+      "segments": 1,
+      "seam_score": 0.4088487731692968,
+      "symmetry_score": 0.4049757752581949,
+      "symmetry_confidence": 0.5932692307692308,
+      "perimeter_score": 0.45127266659263177,
+      "perimeter_confidence": 0.49030315781292255,
+      "perimeter_edges": 4,
+      "contact_segments": 1,
+      "source_score": 0.4573761217305333,
+      "source_seam": 0.4580471893436851,
+      "source_perimeter": 0.45682706641068194,
+      "current_texture": 0.4414213182635648,
+      "current_total": 0.6925569471698175,
+      "centroids": {
+        "1": [
+          3.807528,
+          0.954424
+        ],
+        "2": [
+          -0.319976,
+          -0.131999
+        ],
+        "3": [
+          -1.093316,
+          2.419963
+        ],
+        "4": [
+          3.88774,
+          0.626103
+        ]
+      },
+      "individual_image": "pc_simulator/v3_validation/pieces_20260729_142730_v41_outer_border_candidate_49.jpg"
+    }
+  ]
+}

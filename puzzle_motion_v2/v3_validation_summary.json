@@ -1,0 +1,45 @@
+{
+  "version": "3.0-global",
+  "date": "2026-07-29",
+  "synthetic": {
+    "mandatory_t_junction": "pass",
+    "random_angle_four_piece_grid": "pass",
+    "impossible_small_pieces_rejected": "pass"
+  },
+  "real_images": [
+    {
+      "input": "pieces_20260729_122919_result.json",
+      "status": "pass",
+      "target_cm": [8.472, 8.912],
+      "rectangle_iou": 0.954052,
+      "overlap_ratio": 0.003488,
+      "seam_rms_cm": 0.059785,
+      "pc_seconds": 2.219
+    },
+    {
+      "input": "pieces_20260729_121937_result.json",
+      "status": "pass",
+      "target_cm": [8.436, 9.433],
+      "rectangle_iou": 0.908099,
+      "overlap_ratio": 0.004487,
+      "seam_rms_cm": 0.124297,
+      "pc_seconds": 2.219
+    },
+    {
+      "input": "pieces_20260729_113525_result.json",
+      "status": "pass",
+      "target_cm": [7.667, 9.857],
+      "rectangle_iou": 0.923945,
+      "overlap_ratio": 0.005181,
+      "seam_rms_cm": 0.09202,
+      "pc_seconds": 2.109
+    }
+  ],
+  "motion_simulation": {
+    "input": "pieces_20260729_121937_motion.json",
+    "valid": true,
+    "unsafe_pickup_piece_ids": [],
+    "maximum_final_vertex_error_cm": 0.00012438671535927533
+  },
+  "note": "PC geometry and command simulation passed. Physical MaixCAM 2 runtime and mechanism calibration still require on-device verification."
+}
