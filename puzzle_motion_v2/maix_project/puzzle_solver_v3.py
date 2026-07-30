@@ -27,19 +27,48 @@ DIRECT_ABS_TOLERANCE_CM = 0.55
 DIRECT_REL_TOLERANCE = 0.10
 CHAIN_ABS_TOLERANCE_CM = 0.75
 CHAIN_REL_TOLERANCE = 0.12
-MIN_EDGE_CM = 1.65
+MIN_EDGE_CM = 1.00
 
-MAX_CHAIN_PARTS = 2
+MAX_CHAIN_PARTS = 3
 MAX_SEAM_FAMILIES = 64
+# Two edges on each side of one seam are common in a 2x2 arrangement. Keep
+# them in a separate bounded pool so they cannot displace proven 1xN matches.
+MAX_CHAIN_TO_CHAIN_FAMILIES = 96
 MAX_ENUMERATED_TOPOLOGIES = 700
+# A valid placement can create an additional contact that is not needed to
+# connect the piece graph.  Its two-family parent then has a false outer
+# perimeter and fails the dimension prefilter, while the complete three-family
+# topology can sit just below the generic heuristic cutoff.  Keep a bounded
+# reserve for those fully declared contact topologies.
+MAX_THREE_FAMILY_RESERVE_TOPOLOGIES = 128
+MAX_CHAIN_TO_CHAIN_TOPOLOGIES = 192
+MAX_CHAIN_TO_CHAIN_GEOMETRY_TOPOLOGIES = 64
+MAX_CHAIN_TO_CHAIN_SOURCE_TOPOLOGIES = 128
+MAX_TWO_BY_TWO_GRID_TOPOLOGIES = 128
+MAX_TWO_BY_TWO_GRID_SOURCE_TOPOLOGIES = 96
+MAX_FOUR_FAMILY_CYCLE_TOPOLOGIES = 128
+MAX_FOUR_FAMILY_CYCLE_SOURCE_TOPOLOGIES = 96
 MAX_RELAXED_TOPOLOGIES = 96
+WHITE_CARD_GEOMETRY_TOPOLOGIES = 280
+WHITE_CARD_SOURCE_POSE_TOPOLOGIES = 32
+WHITE_CARD_NEIGHBOR_TOPOLOGIES = 120
+WHITE_CARD_BORDER_TOPOLOGIES = 80
+WHITE_CARD_NEIGHBOR_STRUCTURES = 8
+# Sparse number cards have too little artwork for rich seam ranking, but their
+# white outer frame is still reliable.  Fuse its ordinal rank with the
+# geometry rank so neither lighting scale nor one lucky edge-length match can
+# dominate topology selection.
+SPARSE_CARD_BORDER_RANK_WEIGHT = 1.0
 MAX_COARSE_TOPOLOGIES = 80
-MAX_TOPOLOGIES_TO_OPTIMIZE = 8
+MAX_TOPOLOGIES_TO_OPTIMIZE = 16
+MAX_CARD_GENERIC_SEARCH_TOPOLOGIES = 240
+MAX_SPARSE_CARD_CHAIN_SEARCH_TOPOLOGIES = 64
 FAST_STRICT_TOPOLOGIES = 120
 FAST_COARSE_TOPOLOGIES = 32
 
 HUBER_DELTA_CM = 0.28
 POSE_OPTIMIZATION_ITERATIONS = 6
+CHAIN_POSE_OPTIMIZATION_ITERATIONS = 4
 POSE_DAMPING = 1e-3
 # Polygon fitting perturbs area and perimeter independently.  A physically
 # valid topology can therefore have a slightly negative quadratic
@@ -47,12 +76,18 @@ POSE_DAMPING = 1e-3
 # leave the strict decision to the final IoU/overlap/seam quality gates.
 MIN_PERIMETER_DISCRIMINANT_CM2 = -4.0
 STRICT_MIN_PERIMETER_DISCRIMINANT_CM2 = -2.0
+FOUR_FAMILY_CYCLE_MIN_PERIMETER_DISCRIMINANT_CM2 = -8.0
+FOUR_FAMILY_CYCLE_DIRECT_ABS_TOLERANCE_CM = 0.65
+FOUR_FAMILY_CYCLE_DIRECT_REL_TOLERANCE = 0.13
 
 MIN_RECTANGLE_IOU = 0.89
 MAX_OVERLAP_RATIO = 0.055
 MAX_SEAM_RMS_CM = 0.50
 UNIQUE_SCORE_MARGIN = 0.018
 TEXTURE_SCORE_WEIGHT = 0.28
+# Rich J/Q/K artwork should decide between geometrically valid rectangles.
+# Sparse number cards retain the conservative generic texture weight.
+RICH_CARD_TEXTURE_SCORE_WEIGHT = 0.45
 SOURCE_TEXTURE_BLEND = 0.55
 ROUGH_TEXTURE_RANK_WEIGHT = 0.22
 # Geometry-only layouts need a deliberately conservative margin because
@@ -60,7 +95,60 @@ ROUGH_TEXTURE_RANK_WEIGHT = 0.22
 # already supplies independent evidence, so reusing the geometry margin made
 # patterned cards impossible to accept even when the seam pixels were active.
 TEXTURE_UNIQUE_SCORE_MARGIN = 0.0025
-TEXTURE_UNIQUE_RAW_MARGIN = 0.005
+# Real printed-card captures contain resampling and A4-rectification noise.
+# Capture 102952 separates the user-confirmed P1/P2 half-column turn from the
+# runner-up by 0.004815, so a 0.005 hard boundary rejects the correct layout
+# for a numerically insignificant 0.000185.  Geometry, overlap, seam RMS and
+# the mixed-score margin still have to pass independently below.
+TEXTURE_UNIQUE_RAW_MARGIN = 0.004
+# Column half-turn variants can make the blended texture value nearly equal
+# even when every interpretable card cue agrees.  In that case require a
+# substantially larger total-score lead plus consensus from the direct seam,
+# half-turn pattern and exposed outer-border measurements.
+CARD_COMPONENT_SCORE_MARGIN = 0.008
+CARD_COMPONENT_EPSILON = 0.005
+# Two directions of a nearly 180-degree-symmetric face-card print differ by
+# as much as 0.075 in the combined seam/border value in real captures because
+# blur and exposure affect the wide white edge strongly.  Treat that narrow
+# band as an orientation tie and use a deterministic piece-group convention
+# so motion plans do not alternate between equivalent column commands.
+# The playing-card border is a hard visual constraint, not a soft tie-break.
+# Keep only orientations whose exposed perimeter is very close to the
+# whitest candidate before comparing their internal seams.
+CARD_ORIENTATION_PERIMETER_DELTA = 0.025
+# A standard face card is deliberately invariant under a global 180-degree
+# turn.  Perimeter costs of those two target orientations should therefore
+# be effectively identical; this epsilon only groups that final symmetry.
+CARD_GLOBAL_HALF_TURN_PERIMETER_EPSILON = 0.005
+CARD_ORIENTATION_MIN_PERIMETER_CONFIDENCE = 0.60
+CARD_ORIENTATION_PERIMETER_WEIGHT = 1.00
+# Once the four outer borders are white, the direct 180-degree artwork test
+# is the strongest cue for deciding which half-card is upside down.
+CARD_ORIENTATION_SYMMETRY_WEIGHT = 1.00
+CARD_MAX_WORST_SIDE_SCORE = 0.42
+CARD_MAX_WORST_EDGE_SCORE = 0.60
+# The two values above describe the preferred clean white-frame quality.
+# They must not be topology gates: several geometrically complete rectangles
+# can exist and the card artwork is supposed to disambiguate them.  Only
+# reject a candidate here when its perimeter measurement is so poor that it
+# is no longer credible as a card at all.
+CARD_ABSOLUTE_MAX_WORST_SIDE_SCORE = 0.75
+CARD_ABSOLUTE_MAX_WORST_EDGE_SCORE = 0.90
+# Mild ranking penalties keep cleaner borders ahead when pattern evidence is
+# otherwise tied, without deleting a valid rectangle before seam matching.
+CARD_WORST_SIDE_PENALTY_WEIGHT = 0.06
+CARD_WORST_EDGE_PENALTY_WEIGHT = 0.04
+# These guards do not enlarge seam-length matching or the topology search.
+# They only absorb the final raster/polygon measurement jitter around the
+# white-card quality gate.  Capture 20260730_171716 reconstructs the correct
+# 6.17 x 9.24 cm card but measures IoU=0.91883, overlap=0.02567 and perimeter
+# confidence=0.58073, narrowly straddling all three nominal boundaries.
+CARD_FINAL_IOU_GUARD = 0.003
+CARD_FINAL_OVERLAP_GUARD = 0.002
+CARD_PERIMETER_CONFIDENCE_GUARD = 0.05
+# A very small translation-only repair is cheaper and safer than weakening
+# the final overlap gate.  It is used only for near-rectangular white-card
+# candidates containing a measured one-to-many seam.
 # Once a candidate already passes the strict rectangle/overlap/seam gates,
 # the measured pattern discontinuity on the *final physical contacts* is
 # stronger evidence than a tiny difference in the mixed geometry score.
@@ -71,6 +159,13 @@ DIRECT_SEAM_MIN_CONTACTS_PER_PIECE = 1
 TEXTURE_MIN_CONFIDENCE = 0.75
 TEXTURE_ACCEPT_IOU = 0.94
 TEXTURE_ACCEPT_MAX_OVERLAP_RATIO = 0.02
+# Exchanging two already solved half-card columns can amplify millimetre-level
+# contour errors at their shared boundary without changing the underlying
+# topology.  Keep the global candidate gate at TEXTURE_ACCEPT_IOU, but let
+# the bounded four-way orientation check reach the white-border measurement.
+CARD_ORIENTATION_MIN_IOU = 0.92
+CARD_FINAL_MIN_IOU = 0.92
+CARD_FINAL_MAX_OVERLAP_RATIO = 0.025
 TEXTURE_ACCEPT_MAX_SEAM_RMS_CM = 0.20
 EARLY_ACCEPT_IOU = 0.94
 EARLY_ACCEPT_MAX_OVERLAP_RATIO = 0.015
@@ -80,7 +175,7 @@ EARLY_ACCEPT_SCORE_MARGIN = 0.06
 # but only when several independent checks agree.  These thresholds are
 # intentionally stricter than the final acceptance gate so an early exit can
 # never be triggered by 180-degree symmetry alone.
-CARD_EARLY_ACCEPT_IOU = 0.95
+CARD_EARLY_ACCEPT_IOU = 0.94
 CARD_EARLY_ACCEPT_MAX_OVERLAP_RATIO = 0.02
 CARD_EARLY_ACCEPT_MAX_SEAM_RMS_CM = 0.20
 CARD_EARLY_ACCEPT_MIN_TEXTURE_CONFIDENCE = 0.90
@@ -89,10 +184,8 @@ CARD_EARLY_ACCEPT_MIN_TEXTURE_MARGIN = 0.05
 CARD_EARLY_ACCEPT_MIN_SCORE_MARGIN = 0.005
 CARD_EARLY_ACCEPT_MIN_CONTACT_SEGMENTS = 4
 
-# These are deliberately broad sanity limits, not a prescribed puzzle size.
-# The old 8.60 cm minimum long side rejected a valid playing-card layout when
-# manual A4 alignment introduced about 7% scale drift.  Shape quality is still
-# guarded by IoU, overlap and seam-RMS thresholds below.
+# These broad limits are used only by the playing-card mode, whose standard
+# card dimensions differ from the Question 1/2 target rectangle.
 TARGET_MIN_SHORT_CM = 4.00
 TARGET_MAX_SHORT_CM = 10.00
 TARGET_MIN_LONG_CM = 7.50
@@ -105,17 +198,33 @@ TARGET_MAX_LONG_CM = 13.00
 # has no reliable way to turn that strip back into a card.
 WHITE_CARD_MIN_ASPECT_RATIO = 1.45
 WHITE_CARD_MAX_ASPECT_RATIO = 1.61
+# Four hand-cut pieces measured through two cumulative chains carry more
+# perimeter bias than direct card edges. These limits remain guarded by the
+# generic rectangle, overlap, seam and white-border checks.
+CHAIN_CARD_MIN_ASPECT_RATIO = 1.35
+CHAIN_CARD_MAX_ASPECT_RATIO = 1.85
+CHAIN_CARD_MIN_IOU = 0.89
+TWO_BY_TWO_GRID_MIN_IOU = 0.875
+CHAIN_CARD_MAX_OVERLAP_RATIO = 0.055
+CHAIN_CARD_MAX_SEAM_RMS_CM = 0.50
+CHAIN_CARD_MIN_PERIMETER_CONFIDENCE = 0.55
 WHITE_CARD_MODE_CONFIDENCE = 0.50
+RICH_CARD_MODE_CONFIDENCE = 0.45
+MAX_CARD_SOURCE_POSE_RANK_INPUT = 192
 
-# Keep the former, narrower range as the primary candidate band.  Layouts
-# admitted only by the broader emergency range use the existing relaxed
-# quota, so they cannot evict proven candidates from the bounded Maix search.
-CORE_MIN_SHORT_CM = 4.60
-CORE_MAX_SHORT_CM = 9.45
-CORE_MIN_LONG_CM = 8.60
-CORE_MAX_LONG_CM = 12.40
+# Questions 1 and 2 use the specified rectangle dimensions directly.  This
+# excludes size-compatible false layouts before their pose search expands.
+CORE_MIN_SHORT_CM = 5.00
+CORE_MAX_SHORT_CM = 9.00
+CORE_MIN_LONG_CM = 9.00
+CORE_MAX_LONG_CM = 12.00
 
 DEFAULT_MAX_SECONDS = 14.0
+# The global topology ranker is intentionally bounded, but it used to consume
+# the complete Maix deadline before invoking the proven edge-DFS fallback.
+# Reserve enough wall time for DFS to examine a clean four-piece capture and
+# then run the same card-border/artwork verification on its rectangle.
+CARD_LEGACY_RESERVE_SECONDS = 3.0
 # Compatibility names used by the MaixCAM UI.  Keeping these here lets the
 # old solver remain untouched and makes switching versions a one-line import.
 MAX_SEARCH_SECONDS = DEFAULT_MAX_SECONDS
@@ -137,20 +246,47 @@ class SeamFamily:
     normalized_error: float
     used_mask: int
     internal_length_cm: float
+    chain_a_edges: tuple[EdgeRef, ...] = ()
+    chain_b_edges: tuple[EdgeRef, ...] = ()
+
+    @property
+    def is_chain_to_chain(self) -> bool:
+        return bool(self.chain_a_edges and self.chain_b_edges)
+
+    @property
+    def edges(self) -> tuple[EdgeRef, ...]:
+        if self.is_chain_to_chain:
+            return self.chain_a_edges + self.chain_b_edges
+        return (self.long_edge,) + self.short_edges
 
     @property
     def pieces(self) -> frozenset[int]:
-        return frozenset(
-            [self.long_edge.piece_id]
-            + [edge.piece_id for edge in self.short_edges]
-        )
+        return frozenset(edge.piece_id for edge in self.edges)
 
     @property
     def signature(self) -> tuple:
+        if self.is_chain_to_chain:
+            edges = tuple(sorted(self.edges))
+            return (
+                edges[0],
+                edges[1:],
+                self.chain_a_edges,
+                self.chain_b_edges,
+            )
         return (
             self.long_edge,
             tuple(sorted(self.short_edges)),
         )
+
+    @property
+    def split_count(self) -> int:
+        if self.is_chain_to_chain:
+            return (
+                len(self.chain_a_edges)
+                + len(self.chain_b_edges)
+                - 2
+            )
+        return len(self.short_edges) - 1
 
 
 @dataclass
@@ -170,9 +306,13 @@ class LayoutCandidate:
     layout_symmetry_score: float
     layout_perimeter_score: float
     layout_perimeter_confidence: float
+    layout_perimeter_worst_side_score: float
+    layout_perimeter_worst_edge_score: float
     layout_contact_segments: int
     layout_variant: str
     topology_signature: tuple
+    uses_chain_to_chain: bool
+    uses_two_by_two_grid: bool
 
 
 def last_diagnostics() -> dict:
@@ -258,6 +398,7 @@ def generate_seam_families(
         if piece_lengths[edge_id] >= MIN_EDGE_CM
     ]
     families: list[SeamFamily] = []
+    chain_to_chain_families: list[SeamFamily] = []
 
     # Complete edge to complete edge.
     for first_index, first in enumerate(edges):
@@ -348,6 +489,68 @@ def generate_seam_families(
                     )
                 )
 
+    # Two-piece chain to two-piece chain. This cannot be represented as four
+    # direct edge pairs: the chain junctions generally occur at different
+    # positions, so each edge can cover only part of an edge on the other
+    # side. Restrict this family to four distinct pieces and retain ordering
+    # for the pose stage rather than multiplying topology candidates here.
+    if len(pieces) == 4:
+        edges_by_piece = [
+            [edge for edge in edges if edge.piece_id == piece_id]
+            for piece_id in range(4)
+        ]
+        partitions = (
+            ((0, 1), (2, 3)),
+            ((0, 2), (1, 3)),
+            ((0, 3), (1, 2)),
+        )
+        for side_a_ids, side_b_ids in partitions:
+            for chosen in itertools.product(*edges_by_piece):
+                by_piece = {
+                    edge.piece_id: edge for edge in chosen
+                }
+                side_a = tuple(
+                    sorted(by_piece[piece_id] for piece_id in side_a_ids)
+                )
+                side_b = tuple(
+                    sorted(by_piece[piece_id] for piece_id in side_b_ids)
+                )
+                if side_b < side_a:
+                    side_a, side_b = side_b, side_a
+                length_a = sum(
+                    lengths[edge.piece_id][edge.edge_id]
+                    for edge in side_a
+                )
+                length_b = sum(
+                    lengths[edge.piece_id][edge.edge_id]
+                    for edge in side_b
+                )
+                matches, normalized_error = tolerance_match(
+                    length_a,
+                    length_b,
+                    CHAIN_ABS_TOLERANCE_CM,
+                    CHAIN_REL_TOLERANCE,
+                )
+                if not matches:
+                    continue
+                refs = side_a + side_b
+                chain_to_chain_families.append(
+                    SeamFamily(
+                        # Legacy fields remain populated for callers that
+                        # inspect families without understanding 2x2 yet.
+                        long_edge=side_a[0],
+                        short_edges=side_b,
+                        length_error_cm=abs(length_a - length_b),
+                        normalized_error=normalized_error,
+                        used_mask=edge_mask(refs, bit_index),
+                        internal_length_cm=0.5 * (
+                            length_a + length_b
+                        ),
+                        chain_a_edges=side_a,
+                        chain_b_edges=side_b,
+                    )
+                )
+
     # Deduplicate and keep the most plausible families. A small penalty for
     # additional split parts prevents noisy three-part chains dominating.
     deduplicated: dict[tuple, SeamFamily] = {}
@@ -359,11 +562,28 @@ def generate_seam_families(
         deduplicated.values(),
         key=lambda family: (
             family.normalized_error
-            + 0.08 * (len(family.short_edges) - 1),
+            + 0.08 * family.split_count,
             -family.internal_length_cm,
         ),
     )
-    return result[:MAX_SEAM_FAMILIES], lengths
+    chain_deduplicated = {
+        family.signature: family
+        for family in chain_to_chain_families
+    }
+    chain_result = sorted(
+        chain_deduplicated.values(),
+        key=lambda family: (
+            family.normalized_error
+            + 0.08 * family.split_count,
+            -family.internal_length_cm,
+            family.signature,
+        ),
+    )
+    return (
+        result[:MAX_SEAM_FAMILIES]
+        + chain_result[:MAX_CHAIN_TO_CHAIN_FAMILIES],
+        lengths,
+    )
 
 
 def connected_piece_count(
@@ -386,11 +606,12 @@ def connected_piece_count(
 
     used_pieces = set()
     for family in families:
-        long_id = family.long_edge.piece_id
-        used_pieces.add(long_id)
-        for edge in family.short_edges:
+        family_edges = family.edges
+        root_id = family_edges[0].piece_id
+        used_pieces.add(root_id)
+        for edge in family_edges[1:]:
             used_pieces.add(edge.piece_id)
-            union(long_id, edge.piece_id)
+            union(root_id, edge.piece_id)
     components = len({find(piece_id) for piece_id in used_pieces})
     return len(used_pieces), components
 
@@ -420,6 +641,8 @@ def plausible_outer_rectangle(
     # This is only a topology pre-filter. Perimeter is particularly
     # sensitive to hand-cut and polygon-fit errors, so keep a wider margin
     # here and apply the real dimension limits after pose optimization.
+    # This pre-filter estimates dimensions from noisy cut-edge perimeters;
+    # keep it tolerant and enforce the strict Q1/Q2 range after pose fitting.
     topology_margin = 0.75
     legal = (
         TARGET_MIN_SHORT_CM - topology_margin
@@ -468,7 +691,7 @@ def topology_heuristic(
             family.normalized_error for family in families
         )
         + 0.05 * sum(
-            len(family.short_edges) - 1 for family in families
+            family.split_count for family in families
         )
         + 0.55 * (piece_count - used_count)
         + 0.35 * max(0, components - 1)
@@ -482,10 +705,7 @@ def every_piece_keeps_outer_edge(
 ) -> bool:
     used = [set() for _ in pieces]
     for family in families:
-        used[family.long_edge.piece_id].add(
-            family.long_edge.edge_id
-        )
-        for edge in family.short_edges:
+        for edge in family.edges:
             used[edge.piece_id].add(edge.edge_id)
     return all(
         len(used[piece_id]) < len(piece)
@@ -498,6 +718,8 @@ def enumerate_topologies(
     families: list[SeamFamily],
     deadline: float | None = None,
     return_strict_count: bool = False,
+    texture_context: texture_matcher.TextureContext | None = None,
+    source_pieces: list[np.ndarray] | None = None,
 ):
     """Enumerate connected seam topologies using four-piece bit masks.
 
@@ -518,21 +740,22 @@ def enumerate_topologies(
 
     records = []
     for family in families:
-        long_piece = family.long_edge.piece_id
-        piece_mask = 1 << long_piece
+        family_edges = family.edges
+        root_piece = family_edges[0].piece_id
+        piece_mask = 1 << root_piece
         adjacency = 0
         edge_masks = [0] * piece_count
-        edge_masks[long_piece] |= 1 << family.long_edge.edge_id
-        for edge in family.short_edges:
-            short_piece = edge.piece_id
-            piece_mask |= 1 << short_piece
+        edge_masks[root_piece] |= 1 << family_edges[0].edge_id
+        for edge in family_edges[1:]:
+            other_piece = edge.piece_id
+            piece_mask |= 1 << other_piece
             adjacency |= 1 << (
-                long_piece * piece_count + short_piece
+                root_piece * piece_count + other_piece
             )
             adjacency |= 1 << (
-                short_piece * piece_count + long_piece
+                other_piece * piece_count + root_piece
             )
-            edge_masks[short_piece] |= 1 << edge.edge_id
+            edge_masks[other_piece] |= 1 << edge.edge_id
         records.append(
             (
                 family,
@@ -540,7 +763,7 @@ def enumerate_topologies(
                 adjacency,
                 tuple(edge_masks),
                 0.25 * family.normalized_error
-                + 0.05 * (len(family.short_edges) - 1),
+                + 0.05 * family.split_count,
             )
         )
 
@@ -562,6 +785,7 @@ def enumerate_topologies(
 
     def dimension_plausibility_class(
         internal_length: float,
+        min_discriminant: float = MIN_PERIMETER_DISCRIMINANT_CM2,
     ) -> int:
         """Return 0=reject, 1=relaxed, 2=strict.
 
@@ -575,7 +799,7 @@ def enumerate_topologies(
         discriminant = (
             side_sum * side_sum - 4.0 * total_area
         )
-        if discriminant < MIN_PERIMETER_DISCRIMINANT_CM2:
+        if discriminant < min_discriminant:
             return 0
         strict = (
             discriminant
@@ -597,11 +821,180 @@ def enumerate_topologies(
             return 0
         return 2 if strict else 1
 
+    edge_border_costs = (
+        None
+        if texture_context is None
+        else texture_context.edge_border_costs
+    )
+    use_card_border_rank = bool(
+        white_card_mode(texture_context)
+        and edge_border_costs
+    )
+
+    def outer_border_score(edge_masks: list[int]) -> float:
+        if not use_card_border_rank:
+            return 0.0
+        weighted_error = 0.0
+        total_length = 0.0
+        for piece_id, piece in enumerate(pieces):
+            used_edges = edge_masks[piece_id]
+            for edge_id in range(len(piece)):
+                if used_edges & (1 << edge_id):
+                    continue
+                result = edge_border_costs.get((piece_id, edge_id))
+                if result is None:
+                    continue
+                edge_error, edge_length = result
+                weighted_error += edge_error * edge_length
+                total_length += edge_length
+        if total_length <= 1e-8:
+            return 1.0
+        return weighted_error / total_length
+
+    source_pose_family_cache: dict[tuple, tuple[float, int]] = {}
+
+    def source_pose_family_score(
+        family: SeamFamily,
+    ) -> tuple[float, int]:
+        cached = source_pose_family_cache.get(family.signature)
+        if cached is not None:
+            return cached
+        if source_pieces is None:
+            return float("inf"), 0
+        family_errors = []
+        if family.is_chain_to_chain:
+            order_errors = []
+            for side_a in itertools.permutations(
+                family.chain_a_edges
+            ):
+                for side_b in itertools.permutations(
+                    family.chain_b_edges
+                ):
+                    pairs = seam_point_pairs(
+                        source_pieces,
+                        family,
+                        side_a + side_b,
+                    )
+                    if not pairs:
+                        continue
+                    order_errors.append(
+                        sum(
+                            float(
+                                np.linalg.norm(
+                                    first_point - second_point
+                                )
+                            )
+                            for (
+                                _,
+                                first_point,
+                                _,
+                                second_point,
+                            ) in pairs
+                        )
+                        / (
+                            len(pairs)
+                            * max(family.internal_length_cm, 1.0)
+                        )
+                    )
+            if order_errors:
+                family_errors.append(min(order_errors))
+        else:
+            long_piece = source_pieces[
+                family.long_edge.piece_id
+            ]
+            long_first = long_piece[family.long_edge.edge_id]
+            long_second = long_piece[
+                (family.long_edge.edge_id + 1) % len(long_piece)
+            ]
+            long_vector = long_second - long_first
+            long_length = float(np.linalg.norm(long_vector))
+            if long_length > 1e-8:
+                long_unit = long_vector / long_length
+                long_midpoint = (long_first + long_second) * 0.5
+                for edge in family.short_edges:
+                    short_piece = source_pieces[edge.piece_id]
+                    short_first = short_piece[edge.edge_id]
+                    short_second = short_piece[
+                        (edge.edge_id + 1) % len(short_piece)
+                    ]
+                    short_vector = short_second - short_first
+                    short_length = float(np.linalg.norm(short_vector))
+                    if short_length <= 1e-8:
+                        continue
+                    short_unit = short_vector / short_length
+                    parallel_error = abs(
+                        float(
+                            long_unit[0] * short_unit[1]
+                            - long_unit[1] * short_unit[0]
+                        )
+                    )
+                    short_midpoint = (
+                        short_first + short_second
+                    ) * 0.5
+                    distance_scale = max(
+                        1.0,
+                        0.5 * (long_length + short_length),
+                    )
+                    midpoint_error = (
+                        float(
+                            np.linalg.norm(
+                                long_midpoint - short_midpoint
+                            )
+                        )
+                        / distance_scale
+                    )
+                    family_errors.append(
+                        parallel_error + 0.35 * midpoint_error
+                    )
+        result = (
+            float(sum(family_errors)),
+            len(family_errors),
+        )
+        source_pose_family_cache[family.signature] = result
+        return result
+
+    def source_pose_score(
+        topology: tuple[SeamFamily, ...],
+    ) -> float:
+        """Prefer contacts already close in the captured source pose.
+
+        This is only a small white-card reserve, not a hard constraint.  It
+        makes the common "pull the completed card apart by a few centimetres"
+        case reach the expensive geometric ranker early, while randomly
+        rotated pieces still use the unchanged geometry/neighbor/border
+        candidate pools.
+        """
+        if source_pieces is None:
+            return float("inf")
+        error_sum = 0.0
+        error_count = 0
+        for family in topology:
+            family_sum, family_count = source_pose_family_score(
+                family
+            )
+            error_sum += family_sum
+            error_count += family_count
+        if not error_count:
+            return float("inf")
+        return error_sum / error_count
+
     accepted: list[
-        tuple[float, tuple, tuple[SeamFamily, ...]]
+        tuple[float, float, tuple, tuple[SeamFamily, ...]]
     ] = []
     relaxed_accepted: list[
-        tuple[float, tuple, tuple[SeamFamily, ...]]
+        tuple[float, float, tuple, tuple[SeamFamily, ...]]
+    ] = []
+    cycle_accepted: list[
+        tuple[float, float, tuple, tuple[SeamFamily, ...]]
+    ] = []
+    cycle_relaxed_accepted: list[
+        tuple[float, float, tuple, tuple[SeamFamily, ...]]
+    ] = []
+    grid_accepted: list[
+        tuple[float, float, tuple, tuple[SeamFamily, ...]]
+    ] = []
+    grid_relaxed_accepted: list[
+        tuple[float, float, tuple, tuple[SeamFamily, ...]]
     ] = []
     checked = 0
 
@@ -610,8 +1003,17 @@ def enumerate_topologies(
     # checking 2- and 3-family combinations is deterministic and avoids the
     # branch-order failures of the old beam/DFS search.
     for family_count in (1, 2, 3):
+        eligible_records = (
+            records
+            if family_count < 3
+            else [
+                record
+                for record in records
+                if not record[0].is_chain_to_chain
+            ]
+        )
         for selected_records in itertools.combinations(
-            records,
+            eligible_records,
             family_count,
         ):
             checked += 1
@@ -678,7 +1080,12 @@ def enumerate_topologies(
                 else relaxed_accepted
             )
             destination.append(
-                (heuristic, signature, selected_tuple)
+                (
+                    heuristic,
+                    outer_border_score(edge_masks),
+                    signature,
+                    selected_tuple,
+                )
             )
         if (
             deadline is not None
@@ -686,23 +1093,628 @@ def enumerate_topologies(
         ):
             break
 
-    accepted.sort(key=lambda item: (item[0], item[1]))
-    relaxed_accepted.sort(
-        key=lambda item: (item[0], item[1])
+    # A true 2x2 arrangement needs three declared contacts: one two-edge
+    # chain against another two-edge chain, plus one direct contact joining
+    # the two pieces on each side.  The generic three-family loop excludes
+    # chain families to avoid C(n, 3) blow-up, so enumerate this bounded
+    # structure explicitly.
+    if (
+        piece_count == 4
+        and (deadline is None or pytime.monotonic() < deadline)
+    ):
+        direct_pair_records: dict[tuple[int, int], list[tuple]] = {}
+        for record in records:
+            family = record[0]
+            family_edges = family.edges
+            if family.is_chain_to_chain or len(family_edges) != 2:
+                continue
+            pair = tuple(
+                sorted(edge.piece_id for edge in family_edges)
+            )
+            if pair[0] != pair[1]:
+                direct_pair_records.setdefault(pair, []).append(record)
+
+        seen_grid_signatures = set()
+        for chain_record in records:
+            chain_family = chain_record[0]
+            if not chain_family.is_chain_to_chain:
+                continue
+            side_a_ids = tuple(
+                sorted(
+                    edge.piece_id
+                    for edge in chain_family.chain_a_edges
+                )
+            )
+            side_b_ids = tuple(
+                sorted(
+                    edge.piece_id
+                    for edge in chain_family.chain_b_edges
+                )
+            )
+            side_a_records = direct_pair_records.get(side_a_ids, [])
+            side_b_records = direct_pair_records.get(side_b_ids, [])
+            for side_a_record, side_b_record in itertools.product(
+                side_a_records,
+                side_b_records,
+            ):
+                checked += 1
+                if (
+                    checked & 0x3F == 0
+                    and deadline is not None
+                    and pytime.monotonic() >= deadline
+                ):
+                    break
+                selected_records = (
+                    chain_record,
+                    side_a_record,
+                    side_b_record,
+                )
+                used_mask = 0
+                edge_masks = [0] * piece_count
+                internal_length = 0.0
+                heuristic = 0.0
+                selected = []
+                conflict = False
+                for record in selected_records:
+                    (
+                        family,
+                        _,
+                        _,
+                        family_edge_masks,
+                        family_heuristic,
+                    ) = record
+                    if used_mask & family.used_mask:
+                        conflict = True
+                        break
+                    used_mask |= family.used_mask
+                    internal_length += family.internal_length_cm
+                    heuristic += family_heuristic
+                    selected.append(family)
+                    for piece_id in range(piece_count):
+                        edge_masks[piece_id] |= (
+                            family_edge_masks[piece_id]
+                        )
+                if conflict or any(
+                    edge_masks[piece_id].bit_count() != 2
+                    for piece_id in range(piece_count)
+                ):
+                    continue
+                plausibility_class = dimension_plausibility_class(
+                    internal_length
+                )
+                if not plausibility_class:
+                    continue
+                selected_tuple = tuple(selected)
+                signature = tuple(
+                    sorted(family.signature for family in selected)
+                )
+                if signature in seen_grid_signatures:
+                    continue
+                seen_grid_signatures.add(signature)
+                item = (
+                    heuristic,
+                    outer_border_score(edge_masks),
+                    signature,
+                    selected_tuple,
+                )
+                if plausibility_class == 2:
+                    grid_accepted.append(item)
+                else:
+                    grid_relaxed_accepted.append(item)
+            if deadline is not None and pytime.monotonic() >= deadline:
+                break
+
+    # Four pieces meeting around an interior region form a four-contact cycle.
+    # Any three contacts connect all pieces, but treating the omitted fourth
+    # contact as outer perimeter corrupts the rectangle dimension prefilter.
+    # Enumerate only the three possible four-piece cycles rather than the
+    # prohibitively large general C(family_count, 4) search. Pieces may have
+    # additional outer-border vertices; exactly two edges per piece are
+    # consumed by the cycle.
+    if (
+        piece_count == 4
+        and (deadline is None or pytime.monotonic() < deadline)
+    ):
+        pair_records: dict[tuple[int, int], list[tuple]] = {}
+        for record in records:
+            family = record[0]
+            family_edges = family.edges
+            if family.is_chain_to_chain or len(family_edges) != 2:
+                continue
+            pair = tuple(
+                sorted(edge.piece_id for edge in family_edges)
+            )
+            if pair[0] == pair[1]:
+                continue
+            pair_records.setdefault(pair, []).append(record)
+
+        # Polygon fitting can shorten one side of a visually exact contact
+        # just beyond the generic direct-edge tolerance. Add those matches
+        # only to the bounded cycle search; do not enlarge the global seam
+        # family pool.
+        cycle_lengths, cycle_bit_index = build_edge_tables(pieces)
+        existing_cycle_signatures = {
+            record[0].signature
+            for group in pair_records.values()
+            for record in group
+        }
+        for first_piece in range(piece_count):
+            for second_piece in range(first_piece + 1, piece_count):
+                pair = (first_piece, second_piece)
+                for first_edge in range(len(pieces[first_piece])):
+                    first_length = cycle_lengths[first_piece][first_edge]
+                    if first_length < MIN_EDGE_CM:
+                        continue
+                    for second_edge in range(len(pieces[second_piece])):
+                        second_length = cycle_lengths[
+                            second_piece
+                        ][second_edge]
+                        if second_length < MIN_EDGE_CM:
+                            continue
+                        matches, normalized_error = tolerance_match(
+                            first_length,
+                            second_length,
+                            FOUR_FAMILY_CYCLE_DIRECT_ABS_TOLERANCE_CM,
+                            FOUR_FAMILY_CYCLE_DIRECT_REL_TOLERANCE,
+                        )
+                        if not matches:
+                            continue
+                        first_ref = EdgeRef(first_piece, first_edge)
+                        second_ref = EdgeRef(second_piece, second_edge)
+                        refs = (first_ref, second_ref)
+                        family = SeamFamily(
+                            long_edge=first_ref,
+                            short_edges=(second_ref,),
+                            length_error_cm=abs(
+                                first_length - second_length
+                            ),
+                            normalized_error=normalized_error,
+                            used_mask=edge_mask(refs, cycle_bit_index),
+                            internal_length_cm=0.5 * (
+                                first_length + second_length
+                            ),
+                        )
+                        if family.signature in existing_cycle_signatures:
+                            continue
+                        existing_cycle_signatures.add(family.signature)
+                        edge_masks = [0] * piece_count
+                        edge_masks[first_piece] = 1 << first_edge
+                        edge_masks[second_piece] = 1 << second_edge
+                        adjacency = (
+                            1 << (
+                                first_piece * piece_count
+                                + second_piece
+                            )
+                        ) | (
+                            1 << (
+                                second_piece * piece_count
+                                + first_piece
+                            )
+                        )
+                        pair_records.setdefault(pair, []).append(
+                            (
+                                family,
+                                (1 << first_piece)
+                                | (1 << second_piece),
+                                adjacency,
+                                tuple(edge_masks),
+                                0.25 * normalized_error,
+                            )
+                        )
+
+        cycle_orders = (
+            (0, 1, 2, 3),
+            (0, 1, 3, 2),
+            (0, 2, 1, 3),
+        )
+        seen_cycle_signatures = set()
+        for order in cycle_orders:
+            pair_keys = tuple(
+                tuple(sorted((order[index], order[(index + 1) % 4])))
+                for index in range(4)
+            )
+            record_groups = [
+                pair_records.get(pair_key, [])
+                for pair_key in pair_keys
+            ]
+            if any(not group for group in record_groups):
+                continue
+            for selected_records in itertools.product(*record_groups):
+                checked += 1
+                if (
+                    checked & 0x3F == 0
+                    and deadline is not None
+                    and pytime.monotonic() >= deadline
+                ):
+                    break
+                used_mask = 0
+                edge_masks = [0] * piece_count
+                internal_length = 0.0
+                heuristic = 0.0
+                selected = []
+                conflict = False
+                for record in selected_records:
+                    (
+                        family,
+                        _,
+                        _,
+                        family_edge_masks,
+                        family_heuristic,
+                    ) = record
+                    if used_mask & family.used_mask:
+                        conflict = True
+                        break
+                    used_mask |= family.used_mask
+                    internal_length += family.internal_length_cm
+                    heuristic += family_heuristic
+                    selected.append(family)
+                    for piece_id in range(piece_count):
+                        edge_masks[piece_id] |= (
+                            family_edge_masks[piece_id]
+                        )
+                if conflict:
+                    continue
+                plausibility_class = dimension_plausibility_class(
+                    internal_length,
+                    FOUR_FAMILY_CYCLE_MIN_PERIMETER_DISCRIMINANT_CM2,
+                )
+                if not plausibility_class:
+                    continue
+                if any(
+                    edge_masks[piece_id].bit_count()
+                    != 2
+                    for piece_id in range(piece_count)
+                ):
+                    continue
+                selected_tuple = tuple(selected)
+                signature = tuple(
+                    sorted(family.signature for family in selected)
+                )
+                if signature in seen_cycle_signatures:
+                    continue
+                seen_cycle_signatures.add(signature)
+                item = (
+                    heuristic,
+                    outer_border_score(edge_masks),
+                    signature,
+                    selected_tuple,
+                )
+                if plausibility_class == 2:
+                    cycle_accepted.append(item)
+                else:
+                    cycle_relaxed_accepted.append(item)
+            if deadline is not None and pytime.monotonic() >= deadline:
+                break
+
+    # Preserve the proven 1xN ranking exactly. Chain-to-chain layouts use
+    # their dedicated reserve below instead of shifting old candidates out
+    # of the generic and three-family quotas.
+    accepted.sort(
+        key=lambda item: (
+            any(
+                family.is_chain_to_chain
+                for family in item[3]
+            ),
+            item[0],
+            item[2],
+        )
     )
-    strict_topologies = [
-        topology
-        for _, _, topology in accepted[
+    relaxed_accepted.sort(
+        key=lambda item: (
+            any(
+                family.is_chain_to_chain
+                for family in item[3]
+            ),
+            item[0],
+            item[2],
+        )
+    )
+    generic_accepted = [
+        item
+        for item in accepted
+        if not any(
+            family.is_chain_to_chain
+            for family in item[3]
+        )
+    ]
+    selection_has_time = (
+        deadline is None or pytime.monotonic() < deadline
+    )
+    if rich_card_mode(texture_context) and selection_has_time:
+        geometry_limit = min(
+            WHITE_CARD_GEOMETRY_TOPOLOGIES,
+            MAX_ENUMERATED_TOPOLOGIES,
+        )
+        # Source-pose scoring is substantially more expensive than the
+        # geometry key.  It is only a reserve, so rank a bounded prefix and
+        # never let it consume the following coarse/overlap stages.
+        source_pose_pool = generic_accepted[
+            :MAX_CARD_SOURCE_POSE_RANK_INPUT
+        ]
+        source_pose_ranked = sorted(
+            source_pose_pool,
+            key=lambda item: (
+                source_pose_score(item[3]),
+                item[0],
+                item[2],
+            ),
+        )
+        selected_items = list(
+            source_pose_ranked[
+                :min(
+                    WHITE_CARD_SOURCE_POSE_TOPOLOGIES,
+                    MAX_ENUMERATED_TOPOLOGIES,
+                )
+            ]
+        )
+        selected_signatures = {
+            item[2] for item in selected_items
+        }
+        for item in generic_accepted[:geometry_limit]:
+            if item[2] in selected_signatures:
+                continue
+            selected_items.append(item)
+            selected_signatures.add(item[2])
+        # Edge fitting noise often changes only which parallel edge realizes
+        # a fixed piece-contact graph.  Capture 112159's true T-junction is
+        # such a sibling of an early but visibly wrong topology.  Explore a
+        # small round-robin neighborhood of the first contact structures so
+        # one large family cannot consume the complete reserve.
+        def contact_structure(item) -> tuple:
+            return tuple(
+                sorted(
+                    (
+                        family.edges[0].piece_id,
+                        tuple(
+                            sorted(
+                                edge.piece_id
+                                for edge in family.edges[1:]
+                            )
+                        ),
+                    )
+                    for family in item[3]
+                )
+            )
+
+        seed_structures = []
+        for item in generic_accepted:
+            if (
+                deadline is not None
+                and pytime.monotonic() >= deadline
+            ):
+                break
+            structure = contact_structure(item)
+            if structure in seed_structures:
+                continue
+            seed_structures.append(structure)
+            if (
+                len(seed_structures)
+                >= WHITE_CARD_NEIGHBOR_STRUCTURES
+            ):
+                break
+        neighbor_buckets = [
+            [
+                item
+                for item in generic_accepted
+                if (
+                    item[2] not in selected_signatures
+                    and contact_structure(item) == structure
+                )
+            ]
+            for structure in seed_structures
+        ]
+        neighbor_added = 0
+        neighbor_cursor = 0
+        while (
+            neighbor_added < WHITE_CARD_NEIGHBOR_TOPOLOGIES
+            and neighbor_buckets
+            and (
+                deadline is None
+                or pytime.monotonic() < deadline
+            )
+        ):
+            next_buckets = []
+            for bucket in neighbor_buckets:
+                if neighbor_cursor < len(bucket):
+                    item = bucket[neighbor_cursor]
+                    if item[2] not in selected_signatures:
+                        selected_items.append(item)
+                        selected_signatures.add(item[2])
+                        neighbor_added += 1
+                    next_buckets.append(bucket)
+                    if (
+                        neighbor_added
+                        >= WHITE_CARD_NEIGHBOR_TOPOLOGIES
+                    ):
+                        break
+            neighbor_buckets = next_buckets
+            neighbor_cursor += 1
+        if deadline is None or pytime.monotonic() < deadline:
+            border_ranked = sorted(
+                generic_accepted,
+                key=lambda item: (item[1], item[0], item[2]),
+            )
+            for item in border_ranked:
+                if item[2] in selected_signatures:
+                    continue
+                selected_items.append(item)
+                selected_signatures.add(item[2])
+                if len(selected_items) >= MAX_ENUMERATED_TOPOLOGIES:
+                    break
+    elif use_card_border_rank and selection_has_time:
+        border_ranked = sorted(
+            generic_accepted,
+            key=lambda item: (item[1], item[0], item[2]),
+        )
+        geometry_rank = {
+            item[2]: rank
+            for rank, item in enumerate(generic_accepted)
+        }
+        border_rank = {
+            item[2]: rank
+            for rank, item in enumerate(border_ranked)
+        }
+        sparse_card_ranked = sorted(
+            generic_accepted,
+            key=lambda item: (
+                geometry_rank[item[2]]
+                + SPARSE_CARD_BORDER_RANK_WEIGHT
+                * border_rank[item[2]],
+                item[0],
+                item[2],
+            ),
+        )
+        selected_items = sparse_card_ranked[
             :MAX_ENUMERATED_TOPOLOGIES
         ]
+        selected_signatures = {
+            item[2] for item in selected_items
+        }
+    else:
+        selected_items = generic_accepted[
+            :MAX_ENUMERATED_TOPOLOGIES
+        ]
+        selected_signatures = {
+            item[2] for item in selected_items
+        }
+
+    chain_items = [
+        item
+        for item in accepted
+        if any(
+            family.is_chain_to_chain
+            for family in item[3]
+        )
+    ]
+    chain_selected = []
+    if source_pieces is not None:
+        chain_selected.extend(
+            sorted(
+                chain_items,
+                key=lambda item: (
+                    source_pose_score(item[3]),
+                    item[0],
+                    item[2],
+                ),
+            )[:MAX_CHAIN_TO_CHAIN_SOURCE_TOPOLOGIES]
+        )
+    chain_selected.extend(
+        chain_items[:MAX_CHAIN_TO_CHAIN_GEOMETRY_TOPOLOGIES]
+    )
+    chain_to_chain_added = 0
+    for item in chain_selected:
+        if item[2] in selected_signatures:
+            continue
+        selected_items.append(item)
+        selected_signatures.add(item[2])
+        chain_to_chain_added += 1
+        if chain_to_chain_added >= MAX_CHAIN_TO_CHAIN_TOPOLOGIES:
+            break
+
+    grid_accepted.sort(key=lambda item: (item[0], item[2]))
+    grid_selected = []
+    if source_pieces is not None:
+        grid_selected.extend(
+            sorted(
+                grid_accepted,
+                key=lambda item: (
+                    source_pose_score(item[3]),
+                    item[0],
+                    item[2],
+                ),
+            )[:MAX_TWO_BY_TWO_GRID_SOURCE_TOPOLOGIES]
+        )
+    grid_selected.extend(grid_accepted)
+    two_by_two_grid_added = 0
+    for item in grid_selected:
+        if item[2] in selected_signatures:
+            continue
+        selected_items.append(item)
+        selected_signatures.add(item[2])
+        two_by_two_grid_added += 1
+        if two_by_two_grid_added >= MAX_TWO_BY_TWO_GRID_TOPOLOGIES:
+            break
+
+    cycle_accepted.sort(key=lambda item: (item[0], item[2]))
+    cycle_selected = []
+    if source_pieces is not None:
+        cycle_selected.extend(
+            sorted(
+                cycle_accepted,
+                key=lambda item: (
+                    source_pose_score(item[3]),
+                    item[0],
+                    item[2],
+                ),
+            )[:MAX_FOUR_FAMILY_CYCLE_SOURCE_TOPOLOGIES]
+        )
+    cycle_selected.extend(cycle_accepted)
+    four_family_cycle_added = 0
+    for item in cycle_selected:
+        if item[2] in selected_signatures:
+            continue
+        selected_items.append(item)
+        selected_signatures.add(item[2])
+        four_family_cycle_added += 1
+        if (
+            four_family_cycle_added
+            >= MAX_FOUR_FAMILY_CYCLE_TOPOLOGIES
+        ):
+            break
+
+    three_family_added = 0
+    for item in generic_accepted:
+        if (
+            len(item[3]) < 3
+            or item[2] in selected_signatures
+        ):
+            continue
+        selected_items.append(item)
+        selected_signatures.add(item[2])
+        three_family_added += 1
+        if (
+            three_family_added
+            >= MAX_THREE_FAMILY_RESERVE_TOPOLOGIES
+        ):
+            break
+    strict_topologies = [
+        topology
+        for _, _, _, topology in selected_items
     ]
     relaxed_topologies = [
         topology
-        for _, _, topology in relaxed_accepted[
+        for _, _, _, topology in relaxed_accepted[
             :MAX_RELAXED_TOPOLOGIES
         ]
     ]
-    combined = strict_topologies + relaxed_topologies
+    relaxed_cycle_topologies = [
+        topology
+        for _, _, _, topology in sorted(
+            cycle_relaxed_accepted,
+            key=lambda item: (
+                source_pose_score(item[3]),
+                item[0],
+                item[2],
+            ),
+        )[:MAX_RELAXED_TOPOLOGIES]
+    ]
+    relaxed_grid_topologies = [
+        topology
+        for _, _, _, topology in sorted(
+            grid_relaxed_accepted,
+            key=lambda item: (
+                source_pose_score(item[3]),
+                item[0],
+                item[2],
+            ),
+        )[:MAX_RELAXED_TOPOLOGIES]
+    ]
+    combined = (
+        strict_topologies
+        + relaxed_topologies
+        + relaxed_grid_topologies
+        + relaxed_cycle_topologies
+    )
     if return_strict_count:
         return combined, len(strict_topologies)
     return combined
@@ -713,6 +1725,93 @@ def seam_point_pairs(
     family: SeamFamily,
     short_order: tuple[EdgeRef, ...],
 ) -> list[tuple[int, np.ndarray, int, np.ndarray]]:
+    if family.is_chain_to_chain:
+        side_a_count = len(family.chain_a_edges)
+        side_a = short_order[:side_a_count]
+        side_b = short_order[side_a_count:]
+
+        def chain_intervals(chain):
+            edge_lengths = []
+            for edge in chain:
+                first, second = edge_vertices(
+                    pieces[edge.piece_id],
+                    edge,
+                )
+                edge_lengths.append(
+                    legacy.edge_length(first, second)
+                )
+            total = max(sum(edge_lengths), 1e-9)
+            boundaries = [0.0]
+            for length in edge_lengths:
+                boundaries.append(
+                    boundaries[-1] + length / total
+                )
+            boundaries[-1] = 1.0
+            return edge_lengths, boundaries
+
+        _, boundaries_a = chain_intervals(side_a)
+        _, boundaries_b = chain_intervals(side_b)
+        boundaries = sorted(
+            set(boundaries_a + boundaries_b)
+        )
+        pairs = []
+        for start, end in zip(boundaries[:-1], boundaries[1:]):
+            midpoint = 0.5 * (start + end)
+            index_a = next(
+                index
+                for index in range(len(side_a))
+                if midpoint <= boundaries_a[index + 1] + 1e-9
+            )
+            index_b = next(
+                index
+                for index in range(len(side_b))
+                if midpoint <= boundaries_b[index + 1] + 1e-9
+            )
+            edge_a = side_a[index_a]
+            edge_b = side_b[index_b]
+            width_a = max(
+                boundaries_a[index_a + 1]
+                - boundaries_a[index_a],
+                1e-9,
+            )
+            width_b = max(
+                boundaries_b[index_b + 1]
+                - boundaries_b[index_b],
+                1e-9,
+            )
+            first_a, second_a = edge_vertices(
+                pieces[edge_a.piece_id],
+                edge_a,
+            )
+            first_b, second_b = edge_vertices(
+                pieces[edge_b.piece_id],
+                edge_b,
+            )
+            for position in (start, end):
+                fraction_a = (
+                    position - boundaries_a[index_a]
+                ) / width_a
+                fraction_b = (
+                    position - boundaries_b[index_b]
+                ) / width_b
+                pairs.append(
+                    (
+                        edge_a.piece_id,
+                        legacy.edge_point(
+                            first_a,
+                            second_a,
+                            fraction_a,
+                        ),
+                        edge_b.piece_id,
+                        legacy.edge_point(
+                            second_b,
+                            first_b,
+                            fraction_b,
+                        ),
+                    )
+                )
+        return pairs
+
     long_first, long_second = edge_vertices(
         pieces[family.long_edge.piece_id],
         family.long_edge,
@@ -722,7 +1821,6 @@ def seam_point_pairs(
         first, second = edge_vertices(pieces[edge.piece_id], edge)
         short_lengths.append(legacy.edge_length(first, second))
     total_short_length = max(sum(short_lengths), 1e-9)
-
     pairs = []
     cursor = 0.0
     for edge, short_length in zip(short_order, short_lengths):
@@ -957,6 +2055,7 @@ def optimize_poses(
         tuple[int, np.ndarray, int, np.ndarray]
     ],
     anchor_id: int,
+    iterations: int = POSE_OPTIMIZATION_ITERATIONS,
 ) -> tuple[np.ndarray, float]:
     variable_ids = [
         piece_id
@@ -979,7 +2078,7 @@ def optimize_poses(
 
     values = pack(poses)
     damping = POSE_DAMPING
-    for _ in range(POSE_OPTIMIZATION_ITERATIONS):
+    for _ in range(iterations):
         current = unpack(values)
         residual = pose_residuals(current, point_pairs)
         pair_norms = np.linalg.norm(
@@ -1093,98 +2192,626 @@ def build_placements(
 def card_layout_variants(
     placements: list[Placement],
     texture_context: texture_matcher.TextureContext | None,
+    include_half_turns: bool = False,
 ) -> list[tuple[str, list[Placement]]]:
-    """Also test exchanging the two card-width columns as rigid groups.
+    """Test the bounded playing-card symmetries left by geometry.
 
     Four-piece card cuts commonly produce two already coherent half-card
     columns.  Edge-topology enumeration can lock those columns to the wrong
     left/right side because both geometric arrangements have the same shape.
-    The exchanged layout is a translation-only alternative, not a mirror:
-    every piece keeps its rotation and face orientation.
+    It can also put either rectangular two-piece column upside down.  Turning
+    the complete column by 180 degrees preserves its occupied rectangle but
+    changes which printed border and artwork face the outside.
+
+    The alternatives are rigid motions only:
+
+    * exchange the two columns by translation;
+    * turn either complete column, or both columns, by 180 degrees.
+
+    This is deliberately not a per-piece special case.  A single arbitrary
+    polygon generally cannot turn in place without breaking the rectangle;
+    a complete two-piece rectangular column can.  Every generated layout is
+    checked again for dimensions, IoU and overlap before texture scoring.
     """
-    variants = [("topology", placements)]
+    variants: list[tuple[str, list[Placement]]] = []
     if not white_card_mode(texture_context) or len(placements) != 4:
-        return variants
-    points = np.concatenate(
-        [np.asarray(item.vertices, dtype=np.float64) for item in placements],
-        axis=0,
-    ).astype(np.float32)
-    box = cv2.boxPoints(cv2.minAreaRect(points)).astype(np.float64)
-    first_axis = box[1] - box[0]
-    second_axis = box[3] - box[0]
-    # The two half-card columns are separated along the card's long axis
-    # when the completed card is viewed in landscape orientation.
-    if np.linalg.norm(first_axis) >= np.linalg.norm(second_axis):
-        swap_axis = first_axis
-    else:
-        swap_axis = second_axis
-    axis_length = float(np.linalg.norm(swap_axis))
-    if axis_length < 1e-8:
-        return variants
-    axis = swap_axis / axis_length
-    projections = []
-    for item in placements:
-        center = np.mean(
-            np.asarray(item.vertices, dtype=np.float64),
+        return [("topology", placements)]
+
+    def column_groups(layout):
+        points = np.concatenate(
+            [
+                np.asarray(item.vertices, dtype=np.float64)
+                for item in layout
+            ],
+            axis=0,
+        ).astype(np.float32)
+        box = cv2.boxPoints(cv2.minAreaRect(points)).astype(np.float64)
+        first_axis = box[1] - box[0]
+        second_axis = box[3] - box[0]
+        # In landscape card coordinates the two half-card columns are
+        # separated along the completed card's long axis.
+        split_axis = (
+            first_axis
+            if np.linalg.norm(first_axis) >= np.linalg.norm(second_axis)
+            else second_axis
+        )
+        axis_length = float(np.linalg.norm(split_axis))
+        if axis_length < 1e-8:
+            return None
+        axis = split_axis / axis_length
+        projections = [
+            float(
+                np.dot(
+                    np.mean(
+                        np.asarray(item.vertices, dtype=np.float64),
+                        axis=0,
+                    ),
+                    axis,
+                )
+            )
+            for item in layout
+        ]
+        order = np.argsort(projections)
+        low_ids = frozenset(int(index) for index in order[:2])
+        high_ids = frozenset(int(index) for index in order[2:])
+        low_points = np.concatenate(
+            [
+                np.asarray(layout[index].vertices, dtype=np.float64)
+                for index in sorted(low_ids)
+            ],
             axis=0,
         )
-        projections.append(float(np.dot(center, axis)))
-    order = np.argsort(projections)
-    low_ids = set(int(index) for index in order[:2])
-    high_ids = set(int(index) for index in order[2:])
-    low_points = np.concatenate(
-        [
-            np.asarray(placements[index].vertices, dtype=np.float64)
-            for index in sorted(low_ids)
-        ],
-        axis=0,
+        high_points = np.concatenate(
+            [
+                np.asarray(layout[index].vertices, dtype=np.float64)
+                for index in sorted(high_ids)
+            ],
+            axis=0,
+        )
+        low_projection = low_points @ axis
+        high_projection = high_points @ axis
+        low_min = float(np.min(low_projection))
+        low_max = float(np.max(low_projection))
+        high_min = float(np.min(high_projection))
+        high_max = float(np.max(high_projection))
+        # Reject layouts that do not actually consist of two separated
+        # card-width groups.  This prevents arbitrary pieces being turned.
+        if high_min < low_max - 0.35:
+            return None
+        return (
+            axis,
+            low_ids,
+            high_ids,
+            low_min,
+            low_max,
+            high_min,
+            high_max,
+        )
+
+    def translate_columns(layout, groups):
+        (
+            axis,
+            low_ids,
+            high_ids,
+            low_min,
+            low_max,
+            high_min,
+            high_max,
+        ) = groups
+        low_delta = (high_max - low_max) * axis
+        high_delta = (low_min - high_min) * axis
+        result = []
+        for index, item in enumerate(layout):
+            delta = low_delta if index in low_ids else high_delta
+            result.append(
+                Placement(
+                    piece_id=item.piece_id,
+                    vertices=np.asarray(item.vertices) + delta,
+                    rotation=np.asarray(item.rotation).copy(),
+                    translation=np.asarray(item.translation) + delta,
+                    used_edges=item.used_edges,
+                    edge_coverage=item.edge_coverage,
+                )
+            )
+        return result
+
+    def half_turn_group(layout, group_ids):
+        group_points = np.concatenate(
+            [
+                np.asarray(layout[index].vertices, dtype=np.float64)
+                for index in sorted(group_ids)
+            ],
+            axis=0,
+        ).astype(np.float32)
+        center = np.asarray(
+            cv2.minAreaRect(group_points)[0],
+            dtype=np.float64,
+        )
+        result = []
+        for index, item in enumerate(layout):
+            if index in group_ids:
+                # target = R*source+t; a half turn about C gives
+                # target' = -R*source + (2*C-t).
+                result.append(
+                    Placement(
+                        piece_id=item.piece_id,
+                        vertices=(
+                            2.0 * center
+                            - np.asarray(
+                                item.vertices,
+                                dtype=np.float64,
+                            )
+                        ),
+                        rotation=-np.asarray(
+                            item.rotation,
+                            dtype=np.float64,
+                        ),
+                        translation=(
+                            2.0 * center
+                            - np.asarray(
+                                item.translation,
+                                dtype=np.float64,
+                            )
+                        ),
+                        used_edges=item.used_edges,
+                        edge_coverage=item.edge_coverage,
+                    )
+                )
+            else:
+                result.append(
+                    Placement(
+                        piece_id=item.piece_id,
+                        vertices=np.asarray(item.vertices).copy(),
+                        rotation=np.asarray(item.rotation).copy(),
+                        translation=np.asarray(item.translation).copy(),
+                        used_edges=item.used_edges,
+                        edge_coverage=item.edge_coverage,
+                    )
+                )
+        return result
+
+    seen = set()
+
+    def append_if_legal(name, layout, always=False):
+        signature = tuple(
+            np.round(
+                np.asarray(item.vertices, dtype=np.float64),
+                3,
+            ).tobytes()
+            for item in layout
+        )
+        if signature in seen:
+            return
+        if not always:
+            iou, overlap, width, height = layout_metrics(layout)
+            if (
+                not legal_dimensions(width, height, texture_context)
+                or iou < MIN_RECTANGLE_IOU
+                or overlap > MAX_OVERLAP_RATIO
+            ):
+                return
+        seen.add(signature)
+        variants.append((name, layout))
+
+    append_if_legal("topology", placements, always=True)
+    groups = column_groups(placements)
+    # During the global topology search only test the original and exchanged
+    # columns.  Half turns are a second-stage orientation decision; mixing
+    # them into topology ranking lets an accidental seam from another
+    # topology steal the solution.
+    base_layouts = (
+        [("topology", placements, groups)]
+        if include_half_turns
+        else []
     )
-    high_points = np.concatenate(
-        [
-            np.asarray(placements[index].vertices, dtype=np.float64)
-            for index in sorted(high_ids)
-        ],
-        axis=0,
-    )
-    low_projection = low_points @ axis
-    high_projection = high_points @ axis
-    low_min = float(np.min(low_projection))
-    low_max = float(np.max(low_projection))
-    high_min = float(np.min(high_projection))
-    high_max = float(np.max(high_projection))
-    # Only exchange two clearly separated half-card columns.  This keeps the
-    # extra branch bounded and avoids inventing arbitrary translations.
-    if high_min < low_max - 0.35:
+    if groups is not None:
+        swapped = translate_columns(placements, groups)
+        swapped_groups = column_groups(swapped)
+        append_if_legal("column_swap", swapped)
+        if swapped_groups is not None:
+            if include_half_turns:
+                base_layouts.append(
+                    ("column_swap", swapped, swapped_groups)
+                )
+
+    # Test either column independently.  Turning both columns is only a
+    # global 180-degree rotation of the entire finished card; the target
+    # frame already has that free global orientation, so emitting it would
+    # add four unnecessary actuator rotations and can hide which individual
+    # column is actually reversed.
+    if not include_half_turns:
         return variants
-    low_delta = (high_max - low_max) * axis
-    high_delta = (low_min - high_min) * axis
-    swapped = []
-    for index, item in enumerate(placements):
-        delta = low_delta if index in low_ids else high_delta
-        swapped.append(
-            Placement(
-                piece_id=item.piece_id,
-                vertices=np.asarray(item.vertices) + delta,
-                rotation=np.asarray(item.rotation).copy(),
-                translation=np.asarray(item.translation) + delta,
-                used_edges=item.used_edges,
-                edge_coverage=item.edge_coverage,
+    for base_name, base_layout, base_groups in base_layouts:
+        if base_groups is None:
+            continue
+        low_ids = base_groups[1]
+        high_ids = base_groups[2]
+        for turn_groups in (
+            (low_ids,),
+            (high_ids,),
+        ):
+            turned = base_layout
+            turned_piece_ids = []
+            for group_ids in turn_groups:
+                turned = half_turn_group(turned, group_ids)
+                turned_piece_ids.extend(
+                    int(base_layout[index].piece_id) + 1
+                    for index in sorted(group_ids)
+                )
+            suffix = "_half_turn_P{}".format(
+                "_P".join(
+                    str(piece_id)
+                    for piece_id in sorted(turned_piece_ids)
+                )
+            )
+            append_if_legal(base_name + suffix, turned)
+
+    return variants
+
+
+def refine_card_column_orientation(
+    candidate: LayoutCandidate,
+    original: list[np.ndarray],
+    texture_context: texture_matcher.TextureContext | None,
+) -> tuple[LayoutCandidate, list[dict]]:
+    """Choose card-column direction only after geometry chose a topology.
+
+    A half turn of one complete two-piece column leaves the rectangle and its
+    edge topology unchanged.  It must therefore not participate in the large
+    global topology search.  At this bounded second stage we compare at most
+    eight rigid variants of the already selected rectangle and use the
+    pattern measured across its *actual* internal contacts as the primary
+    direction cue.
+    """
+    if not white_card_mode(texture_context):
+        return candidate, []
+
+    alternatives = []
+    evaluated_variants = []
+    minimum_contacts = max(
+        len(original) - 1,
+        DIRECT_SEAM_MIN_CONTACTS_PER_PIECE,
+    )
+    for local_name, placements in card_layout_variants(
+        candidate.solution.placements,
+        texture_context,
+        include_half_turns=True,
+    ):
+        iou, overlap, width, height = layout_metrics(placements)
+        minimum_iou = (
+            TWO_BY_TWO_GRID_MIN_IOU
+            if candidate.uses_two_by_two_grid
+            else (
+                CHAIN_CARD_MIN_IOU
+                if candidate.uses_chain_to_chain
+                else CARD_ORIENTATION_MIN_IOU - CARD_FINAL_IOU_GUARD
             )
         )
-    swapped_iou, swapped_overlap, swapped_width, swapped_height = (
-        layout_metrics(swapped)
-    )
-    if (
-        legal_dimensions(
-            swapped_width,
-            swapped_height,
-            texture_context,
+        maximum_overlap = (
+            CHAIN_CARD_MAX_OVERLAP_RATIO
+            if candidate.uses_chain_to_chain
+            else (
+                CARD_FINAL_MAX_OVERLAP_RATIO
+                + CARD_FINAL_OVERLAP_GUARD
+            )
         )
-        and swapped_iou >= MIN_RECTANGLE_IOU
-        and swapped_overlap <= MAX_OVERLAP_RATIO
-    ):
-        variants.append(("column_swap", swapped))
-    return variants
+        if (
+            not legal_dimensions(
+                width,
+                height,
+                texture_context,
+                candidate.uses_chain_to_chain,
+            )
+            or iou < minimum_iou
+            or overlap > maximum_overlap
+        ):
+            evaluated_variants.append(
+                {
+                    "variant": local_name,
+                    "accepted": False,
+                    "reject_reason": "geometry",
+                    "iou": round(float(iou), 6),
+                    "overlap": round(float(overlap), 6),
+                }
+            )
+            continue
+        result = texture_matcher.score_layout(
+            texture_context,
+            original,
+            placements,
+            None,
+            None,
+        )
+        confidence = float(result.get("confidence", 0.0))
+        contacts = int(result.get("contact_segments", 0))
+        perimeter_confidence = float(
+            result.get("perimeter_confidence", 0.0)
+        )
+        if (
+            confidence < TEXTURE_MIN_CONFIDENCE
+            or contacts < minimum_contacts
+            or perimeter_confidence
+            < (
+                CARD_ORIENTATION_MIN_PERIMETER_CONFIDENCE
+                - CARD_PERIMETER_CONFIDENCE_GUARD
+            )
+        ):
+            evaluated_variants.append(
+                {
+                    "variant": local_name,
+                    "accepted": False,
+                    "reject_reason": (
+                        "texture_or_perimeter_confidence"
+                    ),
+                    "texture_confidence": round(confidence, 6),
+                    "contacts": contacts,
+                    "perimeter_confidence": round(
+                        perimeter_confidence,
+                        6,
+                    ),
+                }
+            )
+            continue
+        seam_score = float(
+            result.get("seam_score", result.get("score", 1.0))
+        )
+        symmetry_score = float(
+            result.get("symmetry_score", seam_score)
+        )
+        perimeter_score = float(
+            result.get("perimeter_score", seam_score)
+        )
+        # A complete playing card must have its white border on all four
+        # outside edges.  This is as important as internal cut continuity:
+        # capture 142730 has a deceptively good blank internal seam in the
+        # wrong direction, while its patterned outer long edge exposes the
+        # mistake immediately.  Half-turn symmetry remains only a tie-break.
+        orientation_score = (
+            seam_score
+            + CARD_ORIENTATION_PERIMETER_WEIGHT
+            * perimeter_score
+            + CARD_ORIENTATION_SYMMETRY_WEIGHT
+            * symmetry_score
+        )
+        if local_name == "topology":
+            name = candidate.layout_variant
+        elif candidate.layout_variant == "topology":
+            name = local_name
+        else:
+            name = candidate.layout_variant + "__" + local_name
+        alternatives.append(
+            {
+                "name": name,
+                "placements": placements,
+                "iou": iou,
+                "overlap": overlap,
+                "width": width,
+                "height": height,
+                "result": result,
+                "orientation_score": orientation_score,
+            }
+        )
+        evaluated_variants.append(
+            {
+                "variant": name,
+                "accepted": True,
+                "orientation_score": round(
+                    float(orientation_score),
+                    6,
+                ),
+                "seam_score": round(seam_score, 6),
+                "perimeter_score": round(perimeter_score, 6),
+                "perimeter_worst_side_score": round(
+                    float(
+                        result.get(
+                            "perimeter_worst_side_score",
+                            1.0,
+                        )
+                    ),
+                    6,
+                ),
+                "perimeter_worst_edge_score": round(
+                    float(
+                        result.get(
+                            "perimeter_worst_edge_score",
+                            1.0,
+                        )
+                    ),
+                    6,
+                ),
+                "perimeter_side_scores": [
+                    round(float(value), 6)
+                    for value in result.get(
+                        "perimeter_side_scores",
+                        [],
+                    )
+                ],
+            }
+        )
+
+    if not alternatives:
+        return candidate, []
+    alternatives.sort(
+        key=lambda item: (
+            float(
+                item["result"].get(
+                    "perimeter_score",
+                    1.0,
+                )
+            ),
+            item["orientation_score"],
+            -item["iou"],
+            item["overlap"],
+        )
+    )
+    best_perimeter = float(
+        alternatives[0]["result"].get(
+            "perimeter_score",
+            1.0,
+        )
+    )
+    white_border_candidates = [
+        item
+        for item in alternatives
+        if float(
+            item["result"].get(
+                "perimeter_score",
+                1.0,
+            )
+        )
+        <= best_perimeter + CARD_ORIENTATION_PERIMETER_DELTA
+    ]
+    white_border_candidates.sort(
+        key=lambda item: (
+            item["orientation_score"],
+            -item["iou"],
+            item["overlap"],
+        )
+    )
+    selected = white_border_candidates[0]
+
+    # Do not normalize the result by piece IDs.  Two single-column half turns
+    # are not a harmless global card turn: only one keeps the Q/J/K artwork
+    # continuous.  The assembled-image score above must make this decision.
+    result = selected["result"]
+    layout_score = float(result.get("score", 1.0))
+    confidence = float(result.get("confidence", 0.0))
+    candidate.solution = Solution(
+        placements=selected["placements"],
+        rectangularity=float(selected["iou"]),
+        width_cm=float(selected["width"]),
+        height_cm=float(selected["height"]),
+        search_nodes=candidate.solution.search_nodes,
+    )
+    candidate.iou = float(selected["iou"])
+    candidate.overlap_ratio = float(selected["overlap"])
+    candidate.texture_score = layout_score
+    candidate.texture_confidence = confidence
+    candidate.source_texture_score = layout_score
+    candidate.layout_texture_score = layout_score
+    candidate.layout_seam_score = float(
+        result.get("seam_score", layout_score)
+    )
+    candidate.layout_symmetry_score = float(
+        result.get("symmetry_score", layout_score)
+    )
+    candidate.layout_perimeter_score = float(
+        result.get("perimeter_score", layout_score)
+    )
+    candidate.layout_perimeter_confidence = float(
+        result.get("perimeter_confidence", 0.0)
+    )
+    candidate.layout_perimeter_worst_side_score = float(
+        result.get("perimeter_worst_side_score", 1.0)
+    )
+    candidate.layout_perimeter_worst_edge_score = float(
+        result.get("perimeter_worst_edge_score", 1.0)
+    )
+    candidate.layout_contact_segments = int(
+        result.get("contact_segments", 0)
+    )
+    candidate.layout_variant = str(selected["name"])
+    candidate.score = (
+        (1.0 - candidate.iou)
+        + 1.7 * candidate.overlap_ratio
+        + 0.12 * min(candidate.seam_rms_cm, 2.0)
+        + texture_rank_weight(texture_context)
+        * candidate.texture_score
+        * candidate.texture_confidence
+    )
+    return candidate, evaluated_variants
+
+
+def card_candidate_from_solution(
+    solution: Solution,
+    original: list[np.ndarray],
+    texture_context: texture_matcher.TextureContext,
+) -> LayoutCandidate:
+    """Wrap a DFS rectangle so it receives the normal card visual checks."""
+    iou, overlap, width, height = layout_metrics(solution.placements)
+    result = texture_matcher.score_layout(
+        texture_context,
+        original,
+        solution.placements,
+        None,
+        None,
+    )
+    texture_score = float(result.get("score", 1.0))
+    texture_confidence = float(result.get("confidence", 0.0))
+    perimeter_score = float(
+        result.get("perimeter_score", texture_score)
+    )
+    solution.rectangularity = iou
+    solution.width_cm = width
+    solution.height_cm = height
+    score = (
+        (1.0 - iou)
+        + 1.7 * overlap
+        + texture_rank_weight(texture_context)
+        * texture_score
+        * texture_confidence
+    )
+    return LayoutCandidate(
+        solution=solution,
+        score=score,
+        iou=iou,
+        overlap_ratio=overlap,
+        # DFS places every new piece by an explicit edge transform.  It has
+        # no global least-squares seam residual; overlap and final IoU are
+        # the appropriate independent geometry checks for this path.
+        seam_rms_cm=0.0,
+        texture_score=texture_score,
+        texture_confidence=texture_confidence,
+        source_texture_score=texture_score,
+        layout_texture_score=texture_score,
+        source_seam_score=float(
+            result.get("seam_score", texture_score)
+        ),
+        source_perimeter_score=perimeter_score,
+        layout_seam_score=float(
+            result.get("seam_score", texture_score)
+        ),
+        layout_symmetry_score=float(
+            result.get("symmetry_score", texture_score)
+        ),
+        layout_perimeter_score=perimeter_score,
+        layout_perimeter_confidence=float(
+            result.get("perimeter_confidence", 0.0)
+        ),
+        layout_perimeter_worst_side_score=float(
+            result.get("perimeter_worst_side_score", 1.0)
+        ),
+        layout_perimeter_worst_edge_score=float(
+            result.get("perimeter_worst_edge_score", 1.0)
+        ),
+        layout_contact_segments=int(
+            result.get("contact_segments", 0)
+        ),
+        layout_variant="legacy_card_dfs",
+        topology_signature=("legacy_card_dfs",),
+        uses_chain_to_chain=False,
+        uses_two_by_two_grid=False,
+    )
+
+
+def card_candidate_is_executable(candidate: LayoutCandidate) -> bool:
+    """Apply guarded geometry and only the absolute border sanity limits."""
+    return bool(
+        candidate.iou
+        >= CARD_FINAL_MIN_IOU - CARD_FINAL_IOU_GUARD
+        and candidate.overlap_ratio
+        <= CARD_FINAL_MAX_OVERLAP_RATIO + CARD_FINAL_OVERLAP_GUARD
+        and candidate.texture_confidence >= TEXTURE_MIN_CONFIDENCE
+        and candidate.layout_perimeter_confidence
+        >= (
+            CARD_ORIENTATION_MIN_PERIMETER_CONFIDENCE
+            - CARD_PERIMETER_CONFIDENCE_GUARD
+        )
+        and candidate.layout_perimeter_worst_side_score
+        <= CARD_ABSOLUTE_MAX_WORST_SIDE_SCORE
+        and candidate.layout_perimeter_worst_edge_score
+        <= CARD_ABSOLUTE_MAX_WORST_EDGE_SCORE
+    )
 
 
 def layout_metrics(
@@ -1222,10 +2849,32 @@ def white_card_mode(
     )
 
 
+def rich_card_mode(
+    texture_context: texture_matcher.TextureContext | None,
+) -> bool:
+    """Whether artwork is rich enough to justify expanded card ranking."""
+    return bool(
+        white_card_mode(texture_context)
+        and texture_context is not None
+        and texture_context.texture_richness
+        >= RICH_CARD_MODE_CONFIDENCE
+    )
+
+
+def texture_rank_weight(
+    texture_context: texture_matcher.TextureContext | None,
+) -> float:
+    """Use artwork strongly only when the capture contains rich information."""
+    if rich_card_mode(texture_context):
+        return RICH_CARD_TEXTURE_SCORE_WEIGHT
+    return TEXTURE_SCORE_WEIGHT
+
+
 def legal_dimensions(
     width: float,
     height: float,
     texture_context: texture_matcher.TextureContext | None = None,
+    allow_chain_to_chain: bool = False,
 ) -> bool:
     short_side, long_side = sorted((width, height))
     if not (
@@ -1235,6 +2884,12 @@ def legal_dimensions(
         return False
     if white_card_mode(texture_context):
         aspect_ratio = long_side / max(short_side, 1e-9)
+        if allow_chain_to_chain:
+            return (
+                CHAIN_CARD_MIN_ASPECT_RATIO
+                <= aspect_ratio
+                <= CHAIN_CARD_MAX_ASPECT_RATIO
+            )
         return (
             WHITE_CARD_MIN_ASPECT_RATIO
             <= aspect_ratio
@@ -1243,12 +2898,33 @@ def legal_dimensions(
     return True
 
 
+def question_1_2_dimensions(width: float, height: float) -> bool:
+    """Hard target-size gate for the first two geometry questions."""
+    short_side, long_side = sorted((width, height))
+    return (
+        CORE_MIN_SHORT_CM <= short_side <= CORE_MAX_SHORT_CM
+        and CORE_MIN_LONG_CM <= long_side <= CORE_MAX_LONG_CM
+    )
+
+
 def topology_orders(
     topology: tuple[SeamFamily, ...],
 ) -> list[tuple[tuple[EdgeRef, ...], ...]]:
     choices = []
     for family in topology:
-        if len(family.short_edges) == 1:
+        if family.is_chain_to_chain:
+            choices.append(
+                [
+                    side_a + side_b
+                    for side_a in itertools.permutations(
+                        family.chain_a_edges
+                    )
+                    for side_b in itertools.permutations(
+                        family.chain_b_edges
+                    )
+                ]
+            )
+        elif len(family.short_edges) == 1:
             choices.append([family.short_edges])
         else:
             choices.append(
@@ -1347,6 +3023,10 @@ def rough_rank_topologies(
                 width,
                 height,
                 texture_context,
+                any(
+                    family.is_chain_to_chain
+                    for family in topology
+                ),
             ) else 0.25
             score = (
                 (1.0 - rough_fill)
@@ -1354,18 +3034,26 @@ def rough_rank_topologies(
                 + 0.035 * min(seam_rms, 3.0)
                 + dimension_penalty
             )
-            source_texture = texture_matcher.score_source_topology(
-                texture_context,
-                original,
-                topology,
-                orders,
-                source_texture_cache,
-            )
-            score += (
-                ROUGH_TEXTURE_RANK_WEIGHT
-                * float(source_texture["score"])
-                * float(source_texture["confidence"])
-            )
+            # Keep the first pass genuinely coarse.  Sampling source pixels
+            # for every one of the 700+ topology/order combinations dominated
+            # Maix runtime (about five seconds in capture 180811) and caused
+            # the ranker to hit its deadline before reaching the valid
+            # topology.  Texture remains active in the exact-overlap 80 -> 8
+            # pass and in final candidate verification, where it is useful
+            # and bounded.
+            if exact_overlap:
+                source_texture = texture_matcher.score_source_topology(
+                    texture_context,
+                    original,
+                    topology,
+                    orders,
+                    source_texture_cache,
+                )
+                score += (
+                    ROUGH_TEXTURE_RANK_WEIGHT
+                    * float(source_texture["score"])
+                    * float(source_texture["confidence"])
+                )
             if score < best_score:
                 best_score = score
                 best_orders = orders
@@ -1446,7 +3134,19 @@ def _solve_geometry_once(
     families, _ = generate_seam_families(centered)
     pair_cache: dict[tuple, tuple] = {}
     for family in families:
-        for order in itertools.permutations(family.short_edges):
+        if family.is_chain_to_chain:
+            orders = [
+                side_a + side_b
+                for side_a in itertools.permutations(
+                    family.chain_a_edges
+                )
+                for side_b in itertools.permutations(
+                    family.chain_b_edges
+                )
+            ]
+        else:
+            orders = itertools.permutations(family.short_edges)
+        for order in orders:
             pair_cache[(family.signature, order)] = tuple(
                 seam_point_pairs(centered, family, order)
             )
@@ -1456,10 +3156,25 @@ def _solve_geometry_once(
         families,
         deadline=enumeration_deadline,
         return_strict_count=True,
+        texture_context=texture_context,
+        source_pieces=original,
     )
     enumeration_rank_by_signature = {
         topology_signature(topology): rank
         for rank, topology in enumerate(full_topologies)
+    }
+    chain_rank_by_signature = {
+        topology_signature(topology): rank
+        for rank, topology in enumerate(
+            [
+                item
+                for item in full_topologies
+                if any(
+                    family.split_count > 0
+                    for family in item
+                )
+            ]
+        )
     }
     enumeration_finished = pytime.monotonic()
     anchor_id = max(
@@ -1485,14 +3200,56 @@ def _solve_geometry_once(
     candidates: list[LayoutCandidate] = []
     optimized_signatures = set()
     topologies: list[tuple[SeamFamily, ...]] = []
+    chain_priority_topology_count = 0
+    two_by_two_grid_topology_count = 0
+    four_family_cycle_topology_count = 0
+    card_search_pool_count = 0
     early_accepted = False
     fast_path_accepted = False
     early_accept_reason = None
+    last_search_pass = "none"
 
     def recommended_candidate_is_decisive(
         batch_candidates: list[LayoutCandidate],
     ) -> bool:
         nonlocal early_accept_reason
+        grid_candidates = [
+            candidate
+            for candidate in batch_candidates
+            if (
+                candidate.uses_two_by_two_grid
+                and candidate.iou >= TWO_BY_TWO_GRID_MIN_IOU
+                and candidate.overlap_ratio <= 0.02
+                and candidate.seam_rms_cm <= 0.25
+                and candidate.layout_perimeter_confidence >= 0.60
+                and candidate.layout_perimeter_worst_side_score <= 0.55
+                and candidate.layout_contact_segments >= 3
+            )
+        ]
+        if grid_candidates:
+            early_accept_reason = "two_by_two_grid_quality_gate"
+            return True
+        high_quality_card_candidates = [
+            candidate
+            for candidate in batch_candidates
+            if (
+                white_card_mode(texture_context)
+                and candidate.iou >= CARD_EARLY_ACCEPT_IOU
+                and candidate.overlap_ratio
+                <= CARD_EARLY_ACCEPT_MAX_OVERLAP_RATIO
+                and candidate.seam_rms_cm
+                <= CARD_EARLY_ACCEPT_MAX_SEAM_RMS_CM
+                and candidate.texture_confidence
+                >= CARD_EARLY_ACCEPT_MIN_TEXTURE_CONFIDENCE
+                and candidate.layout_perimeter_confidence >= 0.75
+                and candidate.layout_perimeter_worst_side_score <= 0.45
+                and candidate.layout_contact_segments
+                >= CARD_EARLY_ACCEPT_MIN_CONTACT_SEGMENTS
+            )
+        ]
+        if high_quality_card_candidates:
+            early_accept_reason = "absolute_card_quality_gate"
+            return True
         if len(batch_candidates) < 2:
             return False
         recommended = sorted(
@@ -1527,7 +3284,7 @@ def _solve_geometry_once(
                 >= EARLY_ACCEPT_SCORE_MARGIN
             )
         )
-        if geometry_decisive:
+        if geometry_decisive and not white_card_mode(texture_context):
             early_accept_reason = "geometry_margin"
             return True
         if not white_card_mode(texture_context):
@@ -1612,6 +3369,14 @@ def _solve_geometry_once(
                 initial,
                 point_pairs,
                 anchor_id,
+                (
+                    CHAIN_POSE_OPTIMIZATION_ITERATIONS
+                    if any(
+                        family.is_chain_to_chain
+                        for family in topology
+                    )
+                    else POSE_OPTIMIZATION_ITERATIONS
+                ),
             )
             placements = build_placements(
                 original,
@@ -1657,6 +3422,10 @@ def _solve_geometry_once(
                     width,
                     height,
                     texture_context,
+                    any(
+                        family.is_chain_to_chain
+                        for family in topology
+                    ),
                 ):
                     continue
                 texture_result = texture_matcher.score_layout(
@@ -1724,9 +3493,38 @@ def _solve_geometry_once(
                     (1.0 - iou)
                     + 1.7 * overlap_ratio
                     + 0.12 * min(seam_rms, 2.0)
-                    + TEXTURE_SCORE_WEIGHT
+                    + texture_rank_weight(texture_context)
                     * texture_score
                     * texture_confidence
+                )
+                layout_perimeter_worst_side_score = float(
+                    texture_result.get(
+                        "perimeter_worst_side_score",
+                        1.0,
+                    )
+                )
+                layout_perimeter_worst_edge_score = float(
+                    texture_result.get(
+                        "perimeter_worst_edge_score",
+                        1.0,
+                    )
+                )
+                # Keep every geometrically complete rectangle for the
+                # artwork/contact comparison.  Local white-frame defects are
+                # a soft preference, not proof that the topology is wrong.
+                score += (
+                    CARD_WORST_SIDE_PENALTY_WEIGHT
+                    * max(
+                        0.0,
+                        layout_perimeter_worst_side_score
+                        - CARD_MAX_WORST_SIDE_SCORE,
+                    )
+                    + CARD_WORST_EDGE_PENALTY_WEIGHT
+                    * max(
+                        0.0,
+                        layout_perimeter_worst_edge_score
+                        - CARD_MAX_WORST_EDGE_SCORE,
+                    )
                 )
                 solution = Solution(
                     placements=variant_placements,
@@ -1754,23 +3552,167 @@ def _solve_geometry_once(
                         layout_perimeter_confidence=(
                             layout_perimeter_confidence
                         ),
+                        layout_perimeter_worst_side_score=(
+                            layout_perimeter_worst_side_score
+                        ),
+                        layout_perimeter_worst_edge_score=(
+                            layout_perimeter_worst_edge_score
+                        ),
                         layout_contact_segments=layout_contact_segments,
                         layout_variant=layout_variant,
                         topology_signature=topology_signature(
                             topology
                         ),
+                        uses_chain_to_chain=any(
+                            family.is_chain_to_chain
+                            for family in topology
+                        ),
+                        uses_two_by_two_grid=(
+                            len(topology) == 3
+                            and any(
+                                family.is_chain_to_chain
+                                for family in topology
+                            )
+                        ),
                     )
                 )
         return batch_candidates, batch_evaluated, False
 
-    search_passes = [
-        ("fast", fast_topologies, FAST_COARSE_TOPOLOGIES),
-    ]
-    if not fast_only:
+    # A white-card topology selected from the geometry/card-border union is
+    # not guaranteed to live in the first FAST_STRICT_TOPOLOGIES entries.
+    # Capture 20260730_180811 is the minimal counterexample: its correct
+    # topology is enumeration rank 151 and reconstructs at IoU=0.974, but the
+    # Maix fast pass exhausted the shared coarse/overlap deadlines while
+    # examining only the first 120 strict entries.  The subsequent full pass
+    # therefore optimized zero new topologies.
+    #
+    # In card mode run one bounded rank over the complete, already-pruned
+    # topology union.  This also applies to sparse number cards: capture
+    # 013153's correct topology is the eighth full-pool result, while the
+    # fast-prefix pass consumed enough Maix time that only seven full-pool
+    # results reached pose optimization.  This does not enlarge any candidate
+    # quota or tolerance; it only removes the redundant prefix pass.
+    # Geometry-only puzzles retain the lower-latency fast-then-full path.
+    if white_card_mode(texture_context) and not fast_only:
+        grid_priority = [
+            topology
+            for topology in full_topologies
+            if (
+                len(topology) == 3
+                and any(
+                    family.is_chain_to_chain
+                    for family in topology
+                )
+            )
+        ]
+        grid_priority_signatures = {
+            topology_signature(topology)
+            for topology in grid_priority
+        }
+        two_by_two_grid_topology_count = len(grid_priority)
+        chain_priority = [
+            topology
+            for topology in full_topologies
+            if (
+                topology_signature(topology)
+                not in grid_priority_signatures
+                and any(
+                family.is_chain_to_chain
+                for family in topology
+                )
+            )
+        ]
+        chain_priority_signatures = {
+            topology_signature(topology)
+            for topology in chain_priority
+        }
+        chain_priority_topology_count = len(chain_priority)
+        cycle_priority = [
+            topology
+            for topology in full_topologies
+            if len(topology) == 4
+        ]
+        cycle_priority_signatures = {
+            topology_signature(topology)
+            for topology in cycle_priority
+        }
+        four_family_cycle_topology_count = len(cycle_priority)
+        generic_card_topologies = [
+            topology
+            for topology in full_topologies
+            if (
+                topology_signature(topology)
+                not in chain_priority_signatures
+                and topology_signature(topology)
+                not in grid_priority_signatures
+                and topology_signature(topology)
+                not in cycle_priority_signatures
+            )
+        ]
+        generic_card_pool = generic_card_topologies[
+            :MAX_CARD_GENERIC_SEARCH_TOPOLOGIES
+        ]
+        search_passes = []
+        if rich_card_mode(texture_context):
+            card_topology_pool = chain_priority + generic_card_pool
+            generic_fast_topologies = generic_card_topologies[
+                :FAST_STRICT_TOPOLOGIES
+            ]
+            if generic_fast_topologies:
+                search_passes.append(
+                    (
+                        "card_generic_fast",
+                        generic_fast_topologies,
+                        FAST_COARSE_TOPOLOGIES,
+                    )
+                )
+            if grid_priority:
+                search_passes.append(
+                    (
+                        "two_by_two_grid",
+                        grid_priority,
+                        min(
+                            len(grid_priority),
+                            MAX_COARSE_TOPOLOGIES,
+                        ),
+                    )
+                )
+            if cycle_priority:
+                search_passes.append(
+                    (
+                        "four_contact_cycle",
+                        cycle_priority,
+                        len(cycle_priority),
+                    )
+                )
+        else:
+            # Sparse artwork cannot reliably promote the correct topology.
+            # Ranking prefix/grid/full batches separately repeats the most
+            # expensive geometry work and can consume the Maix deadline before
+            # a valid generic topology (capture 050911: rank 232) is optimized.
+            # Rank every topology class together once instead.
+            card_topology_pool = (
+                grid_priority
+                + cycle_priority
+                + chain_priority[
+                    :MAX_SPARSE_CARD_CHAIN_SEARCH_TOPOLOGIES
+                ]
+                + generic_card_pool
+            )
+        card_search_pool_count = len(card_topology_pool)
         search_passes.append(
-            ("full", full_topologies, MAX_COARSE_TOPOLOGIES)
+            ("card_full", card_topology_pool, MAX_COARSE_TOPOLOGIES)
         )
+    else:
+        search_passes = [
+            ("fast", fast_topologies, FAST_COARSE_TOPOLOGIES),
+        ]
+        if not fast_only:
+            search_passes.append(
+                ("full", full_topologies, MAX_COARSE_TOPOLOGIES)
+            )
     for pass_name, topology_pool, coarse_limit in search_passes:
+        last_search_pass = pass_name
         stage_started = pytime.monotonic()
         coarse_topologies = rough_rank_topologies(
             original,
@@ -1836,11 +3778,178 @@ def _solve_geometry_once(
         )
         topologies = ranked_topologies
         early_accepted = batch_early_accepted
-        if pass_name == "fast" and batch_early_accepted:
-            fast_path_accepted = True
+        if (
+            pass_name in (
+                "fast",
+                "card_generic_fast",
+                "two_by_two_grid",
+                "four_contact_cycle",
+            )
+            and batch_early_accepted
+        ):
+            fast_path_accepted = pass_name == "fast"
             break
         if pass_name == "full":
             break
+
+    card_border_floor = None
+    card_border_rejected = 0
+    card_gate_probe = None
+    card_gate_guard_used = False
+    if white_card_mode(texture_context):
+        if candidates:
+            probe = min(
+                candidates,
+                key=lambda candidate: (
+                    max(0.0, CARD_FINAL_MIN_IOU - candidate.iou)
+                    + max(
+                        0.0,
+                        candidate.overlap_ratio
+                        - CARD_FINAL_MAX_OVERLAP_RATIO,
+                    )
+                    + max(
+                        0.0,
+                        CARD_ORIENTATION_MIN_PERIMETER_CONFIDENCE
+                        - candidate.layout_perimeter_confidence,
+                    ),
+                    candidate.score,
+                ),
+            )
+            nominal_failures = []
+            probe_minimum_iou = (
+                TWO_BY_TWO_GRID_MIN_IOU
+                if probe.uses_two_by_two_grid
+                else (
+                    CHAIN_CARD_MIN_IOU
+                    if probe.uses_chain_to_chain
+                    else CARD_FINAL_MIN_IOU
+                )
+            )
+            if probe.iou < probe_minimum_iou:
+                nominal_failures.append("iou")
+            if (
+                probe.overlap_ratio
+                > CARD_FINAL_MAX_OVERLAP_RATIO
+            ):
+                nominal_failures.append("overlap")
+            if (
+                probe.layout_perimeter_confidence
+                < CARD_ORIENTATION_MIN_PERIMETER_CONFIDENCE
+            ):
+                nominal_failures.append("perimeter_confidence")
+            card_gate_probe = {
+                "iou": round(probe.iou, 6),
+                "overlap_ratio": round(
+                    probe.overlap_ratio,
+                    6,
+                ),
+                "seam_rms_cm": round(probe.seam_rms_cm, 6),
+                "aspect_ratio": round(
+                    max(
+                        probe.solution.width_cm,
+                        probe.solution.height_cm,
+                    )
+                    / max(
+                        min(
+                            probe.solution.width_cm,
+                            probe.solution.height_cm,
+                        ),
+                        1e-9,
+                    ),
+                    6,
+                ),
+                "uses_chain_to_chain": probe.uses_chain_to_chain,
+                "uses_two_by_two_grid": probe.uses_two_by_two_grid,
+                "enumeration_rank": enumeration_rank_by_signature.get(
+                    probe.topology_signature
+                ),
+                "chain_enumeration_rank": (
+                    chain_rank_by_signature.get(
+                        probe.topology_signature
+                    )
+                    if probe.uses_chain_to_chain
+                    else None
+                ),
+                "perimeter_confidence": round(
+                    probe.layout_perimeter_confidence,
+                    6,
+                ),
+                "worst_side_score": round(
+                    probe.layout_perimeter_worst_side_score,
+                    6,
+                ),
+                "worst_edge_score": round(
+                    probe.layout_perimeter_worst_edge_score,
+                    6,
+                ),
+                "nominal_failures": nominal_failures,
+            }
+        measurable_card_candidates = [
+            candidate
+            for candidate in candidates
+            if (
+                candidate.iou
+                >= (
+                    TWO_BY_TWO_GRID_MIN_IOU
+                    if candidate.uses_two_by_two_grid
+                    else (
+                        CHAIN_CARD_MIN_IOU
+                        if candidate.uses_chain_to_chain
+                        else CARD_FINAL_MIN_IOU
+                        - CARD_FINAL_IOU_GUARD
+                    )
+                )
+                and candidate.overlap_ratio
+                <= (
+                    CHAIN_CARD_MAX_OVERLAP_RATIO
+                    if candidate.uses_chain_to_chain
+                    else CARD_FINAL_MAX_OVERLAP_RATIO
+                    + CARD_FINAL_OVERLAP_GUARD
+                )
+                and candidate.layout_perimeter_confidence
+                >= (
+                    CHAIN_CARD_MIN_PERIMETER_CONFIDENCE
+                    if candidate.uses_chain_to_chain
+                    else (
+                        CARD_ORIENTATION_MIN_PERIMETER_CONFIDENCE
+                        - CARD_PERIMETER_CONFIDENCE_GUARD
+                    )
+                )
+            )
+        ]
+        if measurable_card_candidates:
+            card_gate_guard_used = any(
+                candidate.iou < CARD_FINAL_MIN_IOU
+                or candidate.overlap_ratio
+                > CARD_FINAL_MAX_OVERLAP_RATIO
+                or candidate.layout_perimeter_confidence
+                < CARD_ORIENTATION_MIN_PERIMETER_CONFIDENCE
+                for candidate in measurable_card_candidates
+            )
+            card_border_floor = min(
+                candidate.layout_perimeter_worst_side_score
+                for candidate in measurable_card_candidates
+            )
+            # Do not collapse the candidate set to the single cleanest white
+            # border.  Multiple rectangles are expected; direct pattern
+            # continuity across their physical contacts selects the answer.
+            verified_card_candidates = [
+                candidate
+                for candidate in measurable_card_candidates
+                if (
+                    candidate.layout_perimeter_worst_side_score
+                    <= CARD_ABSOLUTE_MAX_WORST_SIDE_SCORE
+                    and candidate.layout_perimeter_worst_edge_score
+                    <= CARD_ABSOLUTE_MAX_WORST_EDGE_SCORE
+                )
+            ]
+            card_border_rejected = (
+                len(candidates) - len(verified_card_candidates)
+            )
+            candidates = verified_card_candidates
+        else:
+            card_border_rejected = len(candidates)
+            candidates = []
 
     candidates.sort(key=lambda candidate: candidate.score)
     distinct: list[LayoutCandidate] = []
@@ -1855,15 +3964,127 @@ def _solve_geometry_once(
     second = distinct[1] if len(distinct) > 1 else None
     elapsed = pytime.monotonic() - started
     _LAST_DIAGNOSTICS = {
-        "version": "v4.2-quality-stop",
+        "version": "v5.18-fast-threshold-bounded-chain",
         "seam_family_count": len(families),
+        "chain_to_chain_family_count": sum(
+            family.is_chain_to_chain for family in families
+        ),
         "enumerated_topology_count": enumerated_topology_count,
+        "topology_selection": (
+            "geometry_plus_source_pose_plus_card_border"
+            if rich_card_mode(texture_context)
+            else (
+                "geometry_plus_sparse_card_border"
+                if white_card_mode(texture_context)
+                else "geometry"
+            )
+        ),
+        "geometry_topology_quota": (
+            WHITE_CARD_GEOMETRY_TOPOLOGIES
+            if rich_card_mode(texture_context)
+            else MAX_ENUMERATED_TOPOLOGIES
+        ),
+        "sparse_card_border_rank_weight": (
+            SPARSE_CARD_BORDER_RANK_WEIGHT
+            if (
+                white_card_mode(texture_context)
+                and not rich_card_mode(texture_context)
+            )
+            else 0.0
+        ),
+        "three_family_topology_reserve_quota": (
+            MAX_THREE_FAMILY_RESERVE_TOPOLOGIES
+        ),
+        "chain_to_chain_topology_reserve_quota": (
+            MAX_CHAIN_TO_CHAIN_TOPOLOGIES
+        ),
+        "chain_to_chain_geometry_quota": (
+            MAX_CHAIN_TO_CHAIN_GEOMETRY_TOPOLOGIES
+        ),
+        "chain_to_chain_source_pose_quota": (
+            MAX_CHAIN_TO_CHAIN_SOURCE_TOPOLOGIES
+        ),
+        "chain_priority_topology_count": (
+            chain_priority_topology_count
+        ),
+        "two_by_two_grid_topology_count": (
+            two_by_two_grid_topology_count
+        ),
+        "four_family_cycle_topology_count": (
+            four_family_cycle_topology_count
+        ),
+        "card_search_pool_count": card_search_pool_count,
+        "card_border_topology_quota": (
+            WHITE_CARD_BORDER_TOPOLOGIES
+            if rich_card_mode(texture_context)
+            else 0
+        ),
+        "source_pose_topology_quota": (
+            WHITE_CARD_SOURCE_POSE_TOPOLOGIES
+            if rich_card_mode(texture_context)
+            else 0
+        ),
+        "card_neighbor_topology_quota": (
+            WHITE_CARD_NEIGHBOR_TOPOLOGIES
+            if rich_card_mode(texture_context)
+            else 0
+        ),
+        "card_border_worst_side_floor": (
+            None
+            if card_border_floor is None
+            else round(card_border_floor, 6)
+        ),
+        "card_border_rejected_layouts": card_border_rejected,
+        "card_gate_guard_band_used": card_gate_guard_used,
+        "card_gate_nearest_candidate": card_gate_probe,
         "optimized_topology_count": len(optimized_signatures),
         "evaluated_layouts": evaluated_total,
         "search_mode": (
             "fast"
             if fast_path_accepted
-            else ("fast_only" if fast_only else "full")
+            else (
+                "fast_only"
+                if fast_only
+                else (
+                    last_search_pass
+                    if white_card_mode(texture_context)
+                    else "full"
+                )
+            )
+        ),
+        "card_texture_mode": (
+            "rich"
+            if rich_card_mode(texture_context)
+            else (
+                "sparse"
+                if white_card_mode(texture_context)
+                else "none"
+            )
+        ),
+        "texture_rank_weight": texture_rank_weight(texture_context),
+        "texture_richness": round(
+            float(
+                0.0
+                if texture_context is None
+                else texture_context.texture_richness
+            ),
+            6,
+        ),
+        "ink_fraction": round(
+            float(
+                0.0
+                if texture_context is None
+                else texture_context.ink_fraction
+            ),
+            6,
+        ),
+        "chromatic_fraction": round(
+            float(
+                0.0
+                if texture_context is None
+                else texture_context.chromatic_fraction
+            ),
+            6,
         ),
         "fast_pool_topology_count": len(fast_topologies),
         "early_accepted": early_accepted,
@@ -1964,6 +4185,22 @@ def _solve_geometry_once(
             if best is None
             else round(best.layout_perimeter_confidence, 6)
         ),
+        "best_layout_perimeter_worst_side_score": (
+            None
+            if best is None
+            else round(
+                best.layout_perimeter_worst_side_score,
+                6,
+            )
+        ),
+        "best_layout_perimeter_worst_edge_score": (
+            None
+            if best is None
+            else round(
+                best.layout_perimeter_worst_edge_score,
+                6,
+            )
+        ),
         "best_layout_variant": (
             None if best is None else best.layout_variant
         ),
@@ -1972,6 +4209,10 @@ def _solve_geometry_once(
             if best is None
             else best.layout_contact_segments
         ),
+        "orientation_refined_by": (
+            None
+        ),
+        "best_orientation_candidates": [],
         "white_card_confidence": (
             0.0
             if texture_context is None
@@ -1984,6 +4225,13 @@ def _solve_geometry_once(
             None
             if best is None
             else enumeration_rank_by_signature.get(
+                best.topology_signature
+            )
+        ),
+        "best_chain_enumeration_rank": (
+            None
+            if best is None
+            else chain_rank_by_signature.get(
                 best.topology_signature
             )
         ),
@@ -2092,16 +4340,69 @@ def _solve_geometry_once(
     if best is None:
         return legacy_fallback("no_global_candidate")
     if (
-        best.iou < MIN_RECTANGLE_IOU
+        best.iou
+        < (
+            TWO_BY_TWO_GRID_MIN_IOU
+            if best.uses_two_by_two_grid
+            else MIN_RECTANGLE_IOU
+        )
         or best.overlap_ratio > MAX_OVERLAP_RATIO
         or best.seam_rms_cm > MAX_SEAM_RMS_CM
     ):
         return legacy_fallback("global_quality_gate")
     if (
+        white_card_mode(texture_context)
+        and (
+            best.iou < (
+                TWO_BY_TWO_GRID_MIN_IOU
+                if best.uses_two_by_two_grid
+                else (
+                    CHAIN_CARD_MIN_IOU
+                    if best.uses_chain_to_chain
+                    else CARD_FINAL_MIN_IOU - CARD_FINAL_IOU_GUARD
+                )
+            )
+            or best.overlap_ratio
+            > (
+                CHAIN_CARD_MAX_OVERLAP_RATIO
+                if best.uses_chain_to_chain
+                else (
+                    CARD_FINAL_MAX_OVERLAP_RATIO
+                    + CARD_FINAL_OVERLAP_GUARD
+                )
+            )
+            or best.seam_rms_cm
+            > (
+                CHAIN_CARD_MAX_SEAM_RMS_CM
+                if best.uses_chain_to_chain
+                else TEXTURE_ACCEPT_MAX_SEAM_RMS_CM
+            )
+            or best.layout_perimeter_worst_side_score
+            > CARD_ABSOLUTE_MAX_WORST_SIDE_SCORE
+            or best.layout_perimeter_worst_edge_score
+            > CARD_ABSOLUTE_MAX_WORST_EDGE_SCORE
+        )
+    ):
+        # Pattern evidence may rank already plausible card layouts, but it
+        # must never make a mechanically poor rectangle executable.
+        _LAST_DIAGNOSTICS["fallback"] = (
+            "disabled_for_textured_geometry"
+        )
+        _LAST_DIAGNOSTICS["fallback_reason"] = (
+            "card_geometry_quality_gate"
+        )
+        _LAST_DIAGNOSTICS["fallback_nodes"] = 0
+        return None, evaluated_total
+    if (
         second is not None
         and second.score - best.score < UNIQUE_SCORE_MARGIN
         and second.iou >= MIN_RECTANGLE_IOU
         and best.iou < 0.97
+        and not (
+            white_card_mode(texture_context)
+            and early_accepted
+            and early_accept_reason == "card_quality_gate"
+        )
     ):
         score_margin = second.score - best.score
         texture_margin = (
@@ -2149,6 +4450,21 @@ def _solve_geometry_once(
             and score_margin >= TEXTURE_UNIQUE_SCORE_MARGIN
             and texture_margin >= TEXTURE_UNIQUE_RAW_MARGIN
         )
+        card_components_resolved = (
+            geometry_safe_for_texture
+            and texture_context is not None
+            and texture_context.white_card_confidence
+            >= WHITE_CARD_MODE_CONFIDENCE
+            and score_margin >= CARD_COMPONENT_SCORE_MARGIN
+            and best.layout_contact_segments
+            >= minimum_direct_contacts
+            and best.layout_seam_score
+            <= second.layout_seam_score + CARD_COMPONENT_EPSILON
+            and best.layout_symmetry_score
+            <= second.layout_symmetry_score + CARD_COMPONENT_EPSILON
+            and best.layout_perimeter_score
+            <= second.layout_perimeter_score + CARD_COMPONENT_EPSILON
+        )
         if direct_seam_resolved:
             _LAST_DIAGNOSTICS[
                 "ambiguity_resolved_by"
@@ -2165,6 +4481,10 @@ def _solve_geometry_once(
                 )
                 else "texture"
             )
+        elif card_components_resolved:
+            _LAST_DIAGNOSTICS[
+                "ambiguity_resolved_by"
+            ] = "card_component_consensus"
         else:
             _LAST_DIAGNOSTICS["ambiguous"] = True
             # A geometry-only fallback can silently destroy flower alignment.
@@ -2184,6 +4504,75 @@ def _solve_geometry_once(
                 _LAST_DIAGNOSTICS["fallback_nodes"] = 0
                 return None, evaluated_total
             return legacy_fallback("ambiguous_global_candidate")
+
+    if white_card_mode(texture_context):
+        # The topology has now passed all rectangle, ambiguity and texture
+        # gates.  Only at this point compare the bounded whole-column
+        # directions.  Its score may choose the orientation inside this one
+        # topology, but is deliberately not allowed to reopen topology
+        # ranking or turn a protected early accept into a false ambiguity.
+        topology_score = best.score
+        best, variant_diagnostics = refine_card_column_orientation(
+            best,
+            original,
+            texture_context,
+        )
+        _LAST_DIAGNOSTICS.update(
+            {
+                "topology_score_before_orientation": round(
+                    topology_score,
+                    6,
+                ),
+                "best_score": round(best.score, 6),
+                "best_iou": round(best.iou, 6),
+                "best_overlap_ratio": round(
+                    best.overlap_ratio,
+                    6,
+                ),
+                "best_texture_score": round(
+                    best.texture_score,
+                    6,
+                ),
+                "best_texture_confidence": round(
+                    best.texture_confidence,
+                    6,
+                ),
+                "best_source_texture_score": round(
+                    best.source_texture_score,
+                    6,
+                ),
+                "best_layout_texture_score": round(
+                    best.layout_texture_score,
+                    6,
+                ),
+                "best_layout_seam_score": round(
+                    best.layout_seam_score,
+                    6,
+                ),
+                "best_layout_symmetry_score": round(
+                    best.layout_symmetry_score,
+                    6,
+                ),
+                "best_layout_perimeter_score": round(
+                    best.layout_perimeter_score,
+                    6,
+                ),
+                "best_layout_perimeter_confidence": round(
+                    best.layout_perimeter_confidence,
+                    6,
+                ),
+                "best_layout_variant": best.layout_variant,
+                "best_layout_contact_segments": (
+                    best.layout_contact_segments
+                ),
+                "orientation_refined_by": (
+                    "direct_card_artwork"
+                ),
+                "best_orientation_candidates": (
+                    variant_diagnostics
+                ),
+            }
+        )
     best.solution.search_nodes = evaluated_total
     return best.solution, evaluated_total
 
@@ -2193,13 +4582,7 @@ def solve_geometry(
     max_seconds: float | None = DEFAULT_MAX_SECONDS,
     texture_context: texture_matcher.TextureContext | None = None,
 ) -> tuple[Solution | None, int]:
-    """Try the proven size band first, then an emergency relaxed band.
-
-    Mixing both bands in one bounded candidate pool allowed new small-layout
-    hypotheses to evict previously solved cases.  Two passes preserve the
-    original fast path while still accepting captures with moderate scale
-    drift.  The total time remains bounded by ``max_seconds``.
-    """
+    """Solve card captures with card limits and Q1/Q2 captures strictly."""
     global _LAST_DIAGNOSTICS
     global TARGET_MIN_SHORT_CM, TARGET_MAX_SHORT_CM
     global TARGET_MIN_LONG_CM, TARGET_MAX_LONG_CM
@@ -2231,13 +4614,183 @@ def solve_geometry(
     # the old narrow-size pass first wastes 30% of the Maix time budget and,
     # for a slightly small A4 calibration, that pass cannot possibly succeed.
     # Run one bounded pass with the broad scale limits plus the card aspect
-    # gate above.  Brown cardboard continues to use the two legacy size bands.
+    # gate above. Give V3 nearly the complete budget and retain only a short
+    # final slice for edge DFS; unlike the former last-millisecond fallback,
+    # its result still passes the same artwork and white-perimeter checks.
+    # Brown cardboard uses only the specified Question 1/2 size band.
     if white_card_mode(texture_context):
+        reserve_seconds = (
+            CARD_LEGACY_RESERVE_SECONDS
+            if max_seconds is None or max_seconds <= 0
+            else min(
+                CARD_LEGACY_RESERVE_SECONDS,
+                max(0.50, max_seconds * 0.50),
+            )
+        )
+        global_seconds = (
+            max_seconds
+            if max_seconds is None or max_seconds <= 0
+            else max(0.05, max_seconds - reserve_seconds)
+        )
         card_solution, card_nodes = _solve_geometry_once(
             pieces,
-            max_seconds=max_seconds,
+            max_seconds=global_seconds,
+            allow_legacy_fallback=False,
             texture_context=texture_context,
         )
+        _LAST_DIAGNOSTICS["v3_budget_seconds"] = (
+            None
+            if global_seconds is None or global_seconds <= 0
+            else round(global_seconds, 3)
+        )
+        _LAST_DIAGNOSTICS["dfs_reserve_seconds"] = round(
+            reserve_seconds,
+            3,
+        )
+        global_diagnostics = dict(_LAST_DIAGNOSTICS)
+        if card_solution is None:
+            remaining_seconds = (
+                reserve_seconds
+                if deadline is None
+                else max(0.05, deadline - pytime.monotonic())
+            )
+            legacy_solution, legacy_nodes = legacy.solve_geometry(
+                normalized_pieces,
+                max_seconds=remaining_seconds,
+            )
+            card_nodes += legacy_nodes
+            _LAST_DIAGNOSTICS["fallback"] = (
+                "reserved_legacy_card_dfs"
+            )
+            _LAST_DIAGNOSTICS["fallback_reason"] = (
+                global_diagnostics.get("fallback_reason")
+                or "global_no_executable_candidate"
+            )
+            _LAST_DIAGNOSTICS["fallback_nodes"] = legacy_nodes
+            _LAST_DIAGNOSTICS["fallback_reserved_seconds"] = round(
+                reserve_seconds,
+                3,
+            )
+            if legacy_solution is not None:
+                legacy_candidate = card_candidate_from_solution(
+                    legacy_solution,
+                    normalized_pieces,
+                    texture_context,
+                )
+                (
+                    legacy_candidate,
+                    orientation_diagnostics,
+                ) = refine_card_column_orientation(
+                    legacy_candidate,
+                    normalized_pieces,
+                    texture_context,
+                )
+                executable = card_candidate_is_executable(
+                    legacy_candidate
+                )
+                _LAST_DIAGNOSTICS[
+                    "fallback_card_validation"
+                ] = {
+                    "accepted": executable,
+                    "iou": round(legacy_candidate.iou, 6),
+                    "overlap_ratio": round(
+                        legacy_candidate.overlap_ratio,
+                        6,
+                    ),
+                    "texture_confidence": round(
+                        legacy_candidate.texture_confidence,
+                        6,
+                    ),
+                    "perimeter_confidence": round(
+                        legacy_candidate.layout_perimeter_confidence,
+                        6,
+                    ),
+                    "worst_side_score": round(
+                        legacy_candidate
+                        .layout_perimeter_worst_side_score,
+                        6,
+                    ),
+                    "worst_edge_score": round(
+                        legacy_candidate
+                        .layout_perimeter_worst_edge_score,
+                        6,
+                    ),
+                    "variant": legacy_candidate.layout_variant,
+                }
+                _LAST_DIAGNOSTICS[
+                    "best_orientation_candidates"
+                ] = orientation_diagnostics
+                if executable:
+                    legacy_candidate.solution.search_nodes = card_nodes
+                    card_solution = legacy_candidate.solution
+                    _LAST_DIAGNOSTICS.update(
+                        {
+                            "best_score": round(
+                                legacy_candidate.score,
+                                6,
+                            ),
+                            "best_iou": round(
+                                legacy_candidate.iou,
+                                6,
+                            ),
+                            "best_overlap_ratio": round(
+                                legacy_candidate.overlap_ratio,
+                                6,
+                            ),
+                            "best_seam_rms_cm": 0.0,
+                            "best_texture_score": round(
+                                legacy_candidate.texture_score,
+                                6,
+                            ),
+                            "best_texture_confidence": round(
+                                legacy_candidate.texture_confidence,
+                                6,
+                            ),
+                            "best_layout_seam_score": round(
+                                legacy_candidate.layout_seam_score,
+                                6,
+                            ),
+                            "best_layout_symmetry_score": round(
+                                legacy_candidate
+                                .layout_symmetry_score,
+                                6,
+                            ),
+                            "best_layout_perimeter_score": round(
+                                legacy_candidate
+                                .layout_perimeter_score,
+                                6,
+                            ),
+                            "best_layout_perimeter_confidence": round(
+                                legacy_candidate
+                                .layout_perimeter_confidence,
+                                6,
+                            ),
+                            "best_layout_perimeter_worst_side_score": (
+                                round(
+                                    legacy_candidate
+                                    .layout_perimeter_worst_side_score,
+                                    6,
+                                )
+                            ),
+                            "best_layout_perimeter_worst_edge_score": (
+                                round(
+                                    legacy_candidate
+                                    .layout_perimeter_worst_edge_score,
+                                    6,
+                                )
+                            ),
+                            "best_layout_variant": (
+                                legacy_candidate.layout_variant
+                            ),
+                            "best_layout_contact_segments": (
+                                legacy_candidate
+                                .layout_contact_segments
+                            ),
+                            "orientation_refined_by": (
+                                "reserved_dfs_direct_card_artwork"
+                            ),
+                        }
+                    )
         _LAST_DIAGNOSTICS["size_pass"] = "card_aspect"
         _LAST_DIAGNOSTICS["target_aspect_ratio_range"] = [
             WHITE_CARD_MIN_ASPECT_RATIO,
@@ -2253,6 +4806,9 @@ def solve_geometry(
         )
         return card_solution, card_nodes
 
+    # Reserve time for the proven edge-DFS fallback.  On MaixCAM, a difficult
+    # but legal four-piece layout can exhaust global ranking without leaving
+    # enough time for DFS to recover the same strict Q1/Q2 rectangle.
     core_budget = (
         max_seconds * 0.30
         if max_seconds is not None and max_seconds > 0
@@ -2285,6 +4841,9 @@ def solve_geometry(
             )
             return core_solution, core_nodes
 
+        # A broader candidate pool is needed to recover valid topologies whose
+        # cut-edge perimeter is biased before pose optimization.  It is search
+        # only: the returned layout still passes the hard Q1/Q2 dimensions.
         (
             TARGET_MIN_SHORT_CM,
             TARGET_MAX_SHORT_CM,
@@ -2296,12 +4855,21 @@ def solve_geometry(
             if deadline is None
             else max(0.05, deadline - pytime.monotonic())
         )
-        relaxed_solution, relaxed_nodes = _solve_geometry_once(
+        candidate_solution, candidate_nodes = _solve_geometry_once(
             pieces,
             max_seconds=remaining,
             texture_context=texture_context,
         )
-        _LAST_DIAGNOSTICS["size_pass"] = "relaxed"
+        strict_solution = (
+            candidate_solution
+            if candidate_solution is not None
+            and question_1_2_dimensions(
+                candidate_solution.width_cm,
+                candidate_solution.height_cm,
+            )
+            else None
+        )
+        _LAST_DIAGNOSTICS["size_pass"] = "question_1_2_strict"
         _LAST_DIAGNOSTICS["core_attempt"] = {
             "best_iou": core_diagnostics.get("best_iou"),
             "fallback_reason": core_diagnostics.get(
@@ -2319,7 +4887,7 @@ def solve_geometry(
             deadline is not None
             and pytime.monotonic() >= deadline
         )
-        return relaxed_solution, core_nodes + relaxed_nodes
+        return strict_solution, core_nodes + candidate_nodes
     finally:
         (
             TARGET_MIN_SHORT_CM,

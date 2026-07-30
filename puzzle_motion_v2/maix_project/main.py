@@ -19,8 +19,8 @@ import puzzle_solver_v3 as puzzle_solver
 import texture_matcher
 
 
-APP_VERSION = "4.2-quality-stop"
-SOLVER_MAX_SECONDS = 14.0
+APP_VERSION = "5.8-fast-threshold-bounded-chain"
+SOLVER_MAX_SECONDS = 23.0
 OUTPUT_DIR = "/root/puzzle_motion_output"
 COLORS = piece_vision.COLORS
 
@@ -67,6 +67,13 @@ def solve_detected_pieces(pieces, rectified=None):
         final_solution,
     )
     plan["solver_diagnostics"] = diagnostics
+    clearance = plan["solution"]["motion_clearance"]
+    if not clearance["overlap_verified"]:
+        return None, (
+            "Unsafe target overlap {:.2f}%".format(
+                100.0 * clearance["overlap_ratio"]
+            )
+        )
     unsafe = [
         item["id"]
         for item in plan["pieces"]
@@ -227,20 +234,10 @@ def run_maix() -> int:
             if mode == "align":
                 preview_source = piece_vision.draw_camera_guide(frame)
             else:
-                rectified, _ = piece_vision.rectify_a4(frame)
-                pieces, binary, threshold = piece_vision.detect_pieces(
-                    rectified
-                )
-                annotated = piece_vision.draw_detection(
-                    rectified,
-                    pieces,
-                    threshold,
-                )
-                last_rectified = rectified
-                last_binary = binary
-                last_annotated = annotated
-                last_pieces = pieces
-                preview_source = draw_motion_plan(annotated, last_plan)
+                # Keep the live path cheap. Full-resolution rectification,
+                # multi-threshold segmentation and polygon fitting run once
+                # when FREEZE is released.
+                preview_source = piece_vision.draw_camera_guide(frame)
         else:
             preview_source = draw_motion_plan(
                 last_annotated,
@@ -262,12 +259,43 @@ def run_maix() -> int:
             elif pressed_before:
                 pressed_before = False
                 x, y = last_touch
-                if 10 <= x <= 310 and 365 <= y <= 475:
+                if piece_vision.point_in_rect(
+                    x,
+                    y,
+                    piece_vision.BUTTON_DETECT_RECT,
+                ):
                     if mode == "align":
                         mode = "live"
-                        message = "Live detection"
+                        message = "Live preview - tap FREEZE"
                     elif mode == "live":
                         mode = "frozen"
+                        message = "Detecting..."
+                        detecting_source = piece_vision.draw_camera_guide(
+                            last_raw
+                        )
+                        detecting_screen = piece_vision.compose_screen(
+                            detecting_source,
+                            mode,
+                            message,
+                        )
+                        disp.show(image.cv2image(
+                            detecting_screen,
+                            bgr=True,
+                            copy=True,
+                        ))
+
+                        last_rectified, _ = piece_vision.rectify_a4(last_raw)
+                        (
+                            last_pieces,
+                            last_binary,
+                            threshold,
+                        ) = piece_vision.detect_pieces(last_rectified)
+                        last_annotated = piece_vision.draw_detection(
+                            last_rectified,
+                            last_pieces,
+                            threshold,
+                        )
+
                         message = "Solving... max {:.0f}s".format(
                             SOLVER_MAX_SECONDS
                         )
@@ -295,8 +323,12 @@ def run_maix() -> int:
                     else:
                         mode = "live"
                         last_plan = None
-                        message = "Live detection"
-                elif 330 <= x <= 630 and 365 <= y <= 475:
+                        message = "Live preview - tap FREEZE"
+                elif piece_vision.point_in_rect(
+                    x,
+                    y,
+                    piece_vision.BUTTON_SAVE_RECT,
+                ):
                     if last_annotated is None:
                         message = "Tap DETECT before saving"
                     else:

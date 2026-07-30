@@ -36,10 +36,12 @@ import numpy as np
 
 # -------------------------- adjustable parameters ---------------------------
 
-APP_VERSION = "1.4-notchrepair"
+APP_VERSION = "1.12-fast-threshold-shortlist"
 CAMERA_WIDTH = 2560
 CAMERA_HEIGHT = 1440
 CAMERA_FPS = 30
+BUTTON_DETECT_RECT = (10, 375, 310, 465)
+BUTTON_SAVE_RECT = (330, 375, 630, 465)
 
 # Rectified A4: 40 pixels per centimetre.
 A4_WIDTH_CM = 21.0
@@ -70,8 +72,17 @@ MAX_PIECES = 4
 # Polygon fitting. Raise EPSILON_RATIO if a straight edge is split by noise;
 # lower it if a real corner is being removed.
 EPSILON_RATIO = 0.012
-MIN_LEGAL_EDGE_CM = 2.0
-EDGE_WARNING_MARGIN_CM = 0.25
+MIN_LEGAL_EDGE_CM = 1.0
+EDGE_WARNING_MARGIN_CM = 0.15
+# A new polygon vertex must improve the mean contour fit by at least this
+# amount. This suppresses threshold-sensitive bevels while preserving a real
+# 1 cm edge when its two corners measurably change the outline.
+VERTEX_COMPLEXITY_PENALTY_CM = 0.03
+# Thresholding can insert a vertex along an otherwise straight cut edge.
+# Require both a very shallow turn and a small millimetre-scale line deviation
+# before collapsing it, so genuine short edges and obtuse corners survive.
+COLLINEAR_VERTEX_MIN_TURN_DEG = 165.0
+COLLINEAR_VERTEX_MAX_DEVIATION_CM = 0.20
 # Printed card artwork can meet a cut edge and make the segmented component
 # look like it has a narrow physical notch.  Only repair a component when the
 # normal polygon fit has already failed and its area is still close to its
@@ -304,7 +315,7 @@ def remove_impossible_short_edges(
             break
 
         # A short fitted side is impossible because the task guarantees every
-        # physical edge is at least 2 cm. It normally comes from a cardboard
+        # physical edge is at least 1 cm. It normally comes from a cardboard
         # burr or the thin side-wall shadow. Try removing either endpoint and
         # retain the candidate that best follows the original contour.
         first = np.delete(vertices, short_id, axis=0)
@@ -320,35 +331,103 @@ def remove_impossible_short_edges(
     return vertices
 
 
+def remove_nearly_collinear_vertices(
+    polygon: np.ndarray,
+) -> np.ndarray:
+    """Collapse threshold-induced vertices lying on a straight physical edge."""
+    vertices = polygon.reshape(-1, 2).astype(np.float32)
+    while len(vertices) > 3:
+        removable = []
+        for index in range(len(vertices)):
+            previous = vertices[index - 1]
+            current = vertices[index]
+            following = vertices[(index + 1) % len(vertices)]
+            incoming = current - previous
+            outgoing = following - current
+            incoming_length = float(np.linalg.norm(incoming))
+            outgoing_length = float(np.linalg.norm(outgoing))
+            if incoming_length < 1e-6 or outgoing_length < 1e-6:
+                removable.append((0.0, index))
+                continue
+            cosine = float(
+                np.clip(
+                    np.dot(incoming, outgoing)
+                    / (incoming_length * outgoing_length),
+                    -1.0,
+                    1.0,
+                )
+            )
+            turn_degrees = 180.0 - math.degrees(math.acos(cosine))
+            deviation = float(
+                distance_point_to_segment(
+                    current.reshape(1, 2),
+                    previous,
+                    following,
+                )[0]
+            )
+            if (
+                turn_degrees >= COLLINEAR_VERTEX_MIN_TURN_DEG
+                and deviation
+                <= COLLINEAR_VERTEX_MAX_DEVIATION_CM * PX_PER_CM
+            ):
+                removable.append((deviation, index))
+        if not removable:
+            break
+        _, remove_index = min(removable)
+        vertices = np.delete(vertices, remove_index, axis=0)
+    return vertices
+
+
 def fit_polygon(contour: np.ndarray) -> np.ndarray | None:
     perimeter = cv2.arcLength(contour, True)
     if perimeter <= 0:
         return None
 
-    # Use one predictable epsilon first. Selecting the smallest area error
-    # from many epsilons tends to preserve tiny raster/noise corners and can
-    # turn a real triangle into a quadrilateral.
+    # Compare all legal approximations. Pure contour error always prefers more
+    # vertices, so charge a small physical-scale cost for each extra corner.
+    # This makes the result stable when a nearly straight edge alternates
+    # between four and five vertices across adjacent camera frames.
     ratios = [EPSILON_RATIO]
     ratios.extend(
         EPSILON_RATIO * factor
         for factor in (0.85, 1.15, 0.70, 1.30, 0.55, 1.50, 1.80)
     )
-    approximation = None
+    candidates: dict[tuple, tuple[float, np.ndarray]] = {}
     for ratio in ratios:
         approximation = cv2.approxPolyDP(contour, ratio * perimeter, True)
         edge_count = len(approximation)
-        if 3 <= edge_count <= 5:
-            break
-        approximation = None
+        if not 3 <= edge_count <= 5:
+            continue
+        cleaned = remove_nearly_collinear_vertices(approximation)
+        cleaned = remove_impossible_short_edges(contour, cleaned)
+        if not 3 <= len(cleaned) <= 5:
+            continue
+        signature = tuple(
+            tuple(int(round(value)) for value in point)
+            for point in cleaned.reshape(-1, 2)
+        )
+        contour_error_cm = (
+            polygon_contour_error(contour, cleaned) / PX_PER_CM
+        )
+        score = (
+            contour_error_cm
+            + VERTEX_COMPLEXITY_PENALTY_CM * (len(cleaned) - 3)
+        )
+        old = candidates.get(signature)
+        if old is None or score < old[0]:
+            candidates[signature] = (score, cleaned)
 
-    if approximation is None:
+    if not candidates:
         return None
-    cleaned = remove_impossible_short_edges(contour, approximation)
+    _, cleaned = min(
+        candidates.values(),
+        key=lambda item: (item[0], len(item[1])),
+    )
     refined = refine_polygon_with_lines(contour, cleaned)
 
     # Preserve contour order and reject a degenerate refinement.
     if abs(cv2.contourArea(refined.astype(np.float32))) < 1.0:
-        return approximation.reshape(-1, 2).astype(np.float32)
+        return cleaned.reshape(-1, 2).astype(np.float32)
     return refined
 
 
@@ -427,8 +506,82 @@ def repair_print_notches(binary: np.ndarray) -> np.ndarray:
     return repaired
 
 
-def mask_piece_score(binary: np.ndarray) -> tuple[int, int, float]:
-    """Rank segmentation candidates by plausible, unclipped components."""
+def mask_piece_score(
+    binary: np.ndarray,
+) -> tuple[int, int, int, float, float, float]:
+    """Rank masks by fitted pieces, components, clipping and total area.
+
+    Counting connected components alone is insufficient for printed cards:
+    artwork that reaches a cut edge can leave a deep open notch. Such a
+    component passes the area test but later fails polygon fitting. Evaluate
+    the same repair-and-fit path used by detection so threshold selection
+    does not stop on an unusable four-component mask.
+    """
+    scored_binary = repair_print_notches(binary)
+    contours, _ = cv2.findContours(
+        scored_binary,
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_SIMPLE,
+    )
+    minimum_area = (
+        MIN_PIECE_AREA_CM2 * PX_PER_CM * PX_PER_CM
+    )
+    maximum_area = (
+        MAX_PIECE_AREA_CM2 * PX_PER_CM * PX_PER_CM
+    )
+    height, width = binary.shape
+    plausible = []
+    fragment_area = 0.0
+    for contour in contours:
+        area = float(cv2.contourArea(contour))
+        if not minimum_area <= area <= maximum_area:
+            if 0.35 * PX_PER_CM * PX_PER_CM <= area < minimum_area:
+                fragment_area += area
+            continue
+        x, y, w, h = cv2.boundingRect(contour)
+        if (
+            x <= 1
+            or y <= 1
+            or x + w >= width - 1
+            or y + h >= height - 1
+        ):
+            continue
+        plausible.append((float(area), contour))
+
+    plausible.sort(key=lambda item: item[0], reverse=True)
+    selected = plausible[:MAX_PIECES]
+    fitted_count = 0
+    shape_error = 0.0
+    for contour_area, contour in selected:
+        polygon = fit_polygon(contour)
+        if polygon is None:
+            shape_error += 10.0
+            continue
+        fitted_count += 1
+        contour_error_cm = (
+            polygon_contour_error(contour, polygon) / PX_PER_CM
+        )
+        polygon_area = abs(float(cv2.contourArea(polygon)))
+        relative_area_error = abs(
+            polygon_area - contour_area
+        ) / max(contour_area, 1.0)
+        shape_error += contour_error_cm + relative_area_error
+
+    extra_components = max(0, len(plausible) - MAX_PIECES)
+    return (
+        fitted_count,
+        len(selected),
+        -extra_components,
+        -shape_error,
+        -fragment_area / (PX_PER_CM * PX_PER_CM),
+        float(sum(area for area, _ in selected)),
+    )
+
+
+def fast_mask_piece_score(
+    binary: np.ndarray,
+) -> tuple[int, int, float, float]:
+    """Cheap threshold pre-rank without polygon fitting or notch repair."""
     contours, _ = cv2.findContours(
         binary,
         cv2.RETR_EXTERNAL,
@@ -440,12 +593,15 @@ def mask_piece_score(binary: np.ndarray) -> tuple[int, int, float]:
     maximum_area = (
         MAX_PIECE_AREA_CM2 * PX_PER_CM * PX_PER_CM
     )
+    fragment_minimum = 0.35 * PX_PER_CM * PX_PER_CM
     height, width = binary.shape
-    areas = []
-    extra_components = 0
+    plausible_areas = []
+    fragment_area = 0.0
     for contour in contours:
-        area = cv2.contourArea(contour)
+        area = float(cv2.contourArea(contour))
         if not minimum_area <= area <= maximum_area:
+            if fragment_minimum <= area < minimum_area:
+                fragment_area += area
             continue
         x, y, w, h = cv2.boundingRect(contour)
         if (
@@ -455,15 +611,103 @@ def mask_piece_score(binary: np.ndarray) -> tuple[int, int, float]:
             or y + h >= height - 1
         ):
             continue
-        if len(areas) < MAX_PIECES:
-            areas.append(area)
-        else:
-            extra_components += 1
+        plausible_areas.append(area)
+    plausible_areas.sort(reverse=True)
+    selected = plausible_areas[:MAX_PIECES]
     return (
-        len(areas),
-        -extra_components,
-        float(sum(sorted(areas, reverse=True))),
+        len(selected),
+        -max(0, len(plausible_areas) - MAX_PIECES),
+        -fragment_area / (PX_PER_CM * PX_PER_CM),
+        float(sum(selected)),
     )
+
+
+def clean_segmentation_mask(
+    binary: np.ndarray,
+    invert_bright_majority: bool = False,
+) -> np.ndarray:
+    """Apply the common low-cost cleanup used by all threshold candidates."""
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
+    binary = cv2.morphologyEx(
+        binary,
+        cv2.MORPH_CLOSE,
+        kernel,
+        iterations=2,
+    )
+    if (
+        invert_bright_majority
+        and cv2.countNonZero(binary) > binary.size * 0.55
+    ):
+        binary = cv2.bitwise_not(binary)
+    return fill_external_components(binary)
+
+
+def select_threshold_candidate(
+    measurement: np.ndarray,
+    thresholds: Iterable[int],
+    preferred_threshold: int,
+    invert_bright_majority: bool = False,
+) -> tuple[np.ndarray, int]:
+    """Choose the threshold that produces the most plausible piece mask.
+
+    Otsu is retained as one candidate, but it can no longer unilaterally
+    discard a low-contrast white card on a pale coloured sheet.  Candidate
+    count and clipping are primary; closeness to the robust background-noise
+    estimate breaks ties before contour area.
+    """
+    candidates = []
+    ordered_thresholds = [int(preferred_threshold)]
+    ordered_thresholds.extend(int(value) for value in thresholds)
+    seen_thresholds = set()
+    for threshold in ordered_thresholds:
+        if threshold in seen_thresholds:
+            continue
+        seen_thresholds.add(threshold)
+        _, binary = cv2.threshold(
+            measurement,
+            threshold,
+            255,
+            cv2.THRESH_BINARY,
+        )
+        binary = clean_segmentation_mask(
+            binary,
+            invert_bright_majority=invert_bright_majority,
+        )
+        fast_score = fast_mask_piece_score(binary)
+        fast_key = (
+            fast_score[0],
+            fast_score[1],
+            fast_score[2],
+            -abs(threshold - preferred_threshold),
+            fast_score[3],
+        )
+        candidates.append((fast_key, threshold, binary))
+
+    # Polygon fitting is the dominant Maix cost. Four finalists retain
+    # nearby exposure alternatives without repeating that work for every
+    # threshold in the colour-distance sweep.
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    finalists = candidates[:4]
+    best_binary = np.zeros_like(measurement)
+    best_threshold = int(preferred_threshold)
+    best_key = None
+    for _, threshold, binary in finalists:
+        score = mask_piece_score(binary)
+        key = (
+            score[0],
+            score[1],
+            score[2],
+            score[3],
+            score[4],
+            -abs(threshold - preferred_threshold),
+            score[5],
+        )
+        if best_key is None or key > best_key:
+            best_key = key
+            best_binary = binary
+            best_threshold = threshold
+    return best_binary, best_threshold
 
 
 def segment_intensity_pieces(
@@ -477,24 +721,27 @@ def segment_intensity_pieces(
         255,
         cv2.THRESH_BINARY + cv2.THRESH_OTSU,
     )
-    threshold = int(
+    otsu_threshold = int(
         np.clip(otsu_threshold, MIN_BRIGHT_THRESHOLD, MAX_BRIGHT_THRESHOLD)
     )
-    _, binary = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY)
-
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
-    binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=2)
-
-    # Support both task-board arrangements:
-    #   1. bright/white pieces on a dark matte A4 sheet;
-    #   2. darker coloured test pieces on a white A4 sheet.
-    # In the second arrangement the threshold image is mostly white and the
-    # pieces are black holes. Invert it so pieces are always the white
-    # foreground consumed by findContours().
-    if cv2.countNonZero(binary) > binary.size * 0.55:
-        binary = cv2.bitwise_not(binary)
-    return fill_external_components(binary), threshold
+    thresholds = [
+        int(
+            np.clip(
+                otsu_threshold + offset,
+                MIN_BRIGHT_THRESHOLD,
+                MAX_BRIGHT_THRESHOLD,
+            )
+        )
+        for offset in (-24, -12, 0, 12, 24)
+    ]
+    # Supports bright cards on black/dark boards and darker pieces on white
+    # sheets.  A majority-bright result is inverted for the latter case.
+    return select_threshold_candidate(
+        gray,
+        thresholds,
+        otsu_threshold,
+        invert_bright_majority=True,
+    )
 
 
 def segment_colour_difference(
@@ -526,35 +773,55 @@ def segment_colour_difference(
         255,
         cv2.THRESH_BINARY + cv2.THRESH_OTSU,
     )
-    threshold = int(
+    otsu_threshold = int(
         np.clip(
             otsu_threshold,
             MIN_COLOR_DISTANCE_THRESHOLD,
             MAX_COLOR_DISTANCE_THRESHOLD,
         )
     )
-    _, binary = cv2.threshold(
+    # The 70th percentile still belongs to the sheet when four separated
+    # pieces occupy a minority of the work area.  Moving just above it gives
+    # a robust estimate of sheet illumination/print variation.  In capture
+    # 131923 this is 22 instead of Otsu's incorrect 49.
+    background_threshold = int(
+        np.clip(
+            np.percentile(distance, 70.0) + 3.0,
+            MIN_COLOR_DISTANCE_THRESHOLD,
+            40,
+        )
+    )
+    thresholds = [
+        background_threshold + offset
+        for offset in (-8, -4, 0, 4, 8, 12)
+    ]
+    thresholds.extend(
+        (
+            MIN_COLOR_DISTANCE_THRESHOLD,
+            18,
+            22,
+            26,
+            30,
+            34,
+            38,
+            otsu_threshold,
+        )
+    )
+    thresholds = [
+        int(
+            np.clip(
+                value,
+                MIN_COLOR_DISTANCE_THRESHOLD,
+                MAX_COLOR_DISTANCE_THRESHOLD,
+            )
+        )
+        for value in thresholds
+    ]
+    return select_threshold_candidate(
         distance,
-        threshold,
-        255,
-        cv2.THRESH_BINARY,
+        thresholds,
+        background_threshold,
     )
-    kernel = cv2.getStructuringElement(
-        cv2.MORPH_ELLIPSE,
-        (5, 5),
-    )
-    binary = cv2.morphologyEx(
-        binary,
-        cv2.MORPH_OPEN,
-        kernel,
-    )
-    binary = cv2.morphologyEx(
-        binary,
-        cv2.MORPH_CLOSE,
-        kernel,
-        iterations=2,
-    )
-    return fill_external_components(binary), threshold
 
 
 def segment_bright_pieces(work_image: np.ndarray) -> tuple[np.ndarray, int]:
@@ -575,7 +842,8 @@ def segment_bright_pieces(work_image: np.ndarray) -> tuple[np.ndarray, int]:
     primary_score = mask_piece_score(primary_binary)
     if (
         primary_score[0] == MAX_PIECES
-        and primary_score[1] == 0
+        and primary_score[1] == MAX_PIECES
+        and primary_score[2] == 0
     ):
         return primary_binary, primary_threshold
 
@@ -583,6 +851,54 @@ def segment_bright_pieces(work_image: np.ndarray) -> tuple[np.ndarray, int]:
     if mask_piece_score(secondary_binary) > primary_score:
         return secondary_binary, secondary_threshold
     return primary_binary, primary_threshold
+
+
+def normalize_piece_components(binary: np.ndarray) -> np.ndarray:
+    """Keep real pieces and render their fitted straight-edge silhouettes.
+
+    Printed artwork can create detached islands or open notches in the raw
+    colour mask. Once a component has passed the task's area, clipping and
+    polygon checks, the fitted 3--5-edge polygon is the more faithful physical
+    boundary for geometry and debug output.
+    """
+    contours, _ = cv2.findContours(
+        binary,
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_NONE,
+    )
+    minimum_area = MIN_PIECE_AREA_CM2 * PX_PER_CM * PX_PER_CM
+    maximum_area = MAX_PIECE_AREA_CM2 * PX_PER_CM * PX_PER_CM
+    height, width = binary.shape
+    fitted_components = []
+    for contour in contours:
+        area = float(cv2.contourArea(contour))
+        if not minimum_area <= area <= maximum_area:
+            continue
+        x, y, w, h = cv2.boundingRect(contour)
+        if (
+            x <= 1
+            or y <= 1
+            or x + w >= width - 1
+            or y + h >= height - 1
+        ):
+            continue
+        polygon = fit_polygon(contour)
+        if polygon is None:
+            continue
+        fitted_components.append((area, polygon))
+
+    fitted_components.sort(key=lambda item: item[0], reverse=True)
+    normalized = np.zeros_like(binary)
+    for _, polygon in fitted_components[:MAX_PIECES]:
+        polygon_i = np.rint(polygon).astype(np.int32).reshape(-1, 1, 2)
+        cv2.drawContours(
+            normalized,
+            [polygon_i],
+            -1,
+            255,
+            cv2.FILLED,
+        )
+    return normalized
 
 
 def polygon_edge_lengths(polygon: np.ndarray) -> list[float]:
@@ -601,6 +917,7 @@ def detect_pieces(rectified: np.ndarray) -> tuple[list[Piece], np.ndarray, int]:
     work_image = rectified[y0:y1, x0:x1]
     binary, threshold = segment_bright_pieces(work_image)
     binary = repair_print_notches(binary)
+    binary = normalize_piece_components(binary)
     contours, _ = cv2.findContours(
         binary,
         cv2.RETR_EXTERNAL,
@@ -811,6 +1128,11 @@ def compose_screen(
     return screen
 
 
+def point_in_rect(x: int, y: int, rect: tuple[int, int, int, int]) -> bool:
+    x0, y0, x1, y1 = rect
+    return x0 <= x <= x1 and y0 <= y <= y1
+
+
 def save_debug(
     raw: np.ndarray,
     rectified: np.ndarray,
@@ -908,14 +1230,8 @@ def run_maix() -> int:
             if mode == "align":
                 preview_source = draw_camera_guide(frame)
             else:
-                rectified, _ = rectify_a4(frame)
-                pieces, binary, threshold = detect_pieces(rectified)
-                annotated = draw_detection(rectified, pieces, threshold)
-                last_rectified = rectified
-                last_binary = binary
-                last_annotated = annotated
-                last_pieces = pieces
-                preview_source = annotated
+                # Preview only. The expensive detector runs once on FREEZE.
+                preview_source = draw_camera_guide(frame)
         else:
             preview_source = last_annotated
 
@@ -930,12 +1246,23 @@ def run_maix() -> int:
             elif pressed_before:
                 pressed_before = False
                 x, y = last_touch
-                if 10 <= x <= 310 and 365 <= y <= 475:
+                if point_in_rect(x, y, BUTTON_DETECT_RECT):
                     if mode == "align":
                         mode = "live"
-                        message = "Live detection"
+                        message = "Live preview - tap FREEZE"
                     elif mode == "live":
                         mode = "frozen"
+                        last_rectified, _ = rectify_a4(last_raw)
+                        (
+                            last_pieces,
+                            last_binary,
+                            threshold,
+                        ) = detect_pieces(last_rectified)
+                        last_annotated = draw_detection(
+                            last_rectified,
+                            last_pieces,
+                            threshold,
+                        )
                         message = f"Frozen: {len(last_pieces)} pieces"
                         print(json.dumps(
                             {"piece_count": len(last_pieces),
@@ -948,8 +1275,8 @@ def run_maix() -> int:
                         ))
                     else:
                         mode = "live"
-                        message = "Live detection"
-                elif 330 <= x <= 630 and 365 <= y <= 475:
+                        message = "Live preview - tap FREEZE"
+                elif point_in_rect(x, y, BUTTON_SAVE_RECT):
                     if last_annotated is None:
                         message = "Tap DETECT before saving"
                     else:
