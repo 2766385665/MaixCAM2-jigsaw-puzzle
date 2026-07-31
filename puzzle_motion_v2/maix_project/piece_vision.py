@@ -569,9 +569,12 @@ def repair_print_notches(binary: np.ndarray) -> np.ndarray:
     return repaired
 
 
-def mask_piece_score(
+def evaluate_mask_piece(
     binary: np.ndarray,
-) -> tuple[int, int, int, float, float, float]:
+) -> tuple[
+    tuple[int, int, int, float, float, float],
+    np.ndarray,
+]:
     """Rank masks by fitted pieces, components, clipping and total area.
 
     Counting connected components alone is insufficient for printed cards:
@@ -632,13 +635,23 @@ def mask_piece_score(
 
     extra_components = max(0, len(plausible) - MAX_PIECES)
     return (
-        fitted_count,
-        len(selected),
-        -extra_components,
-        -shape_error,
-        -fragment_area / (PX_PER_CM * PX_PER_CM),
-        float(sum(area for area, _ in selected)),
+        (
+            fitted_count,
+            len(selected),
+            -extra_components,
+            -shape_error,
+            -fragment_area / (PX_PER_CM * PX_PER_CM),
+            float(sum(area for area, _ in selected)),
+        ),
+        scored_binary,
     )
+
+
+def mask_piece_score(
+    binary: np.ndarray,
+) -> tuple[int, int, int, float, float, float]:
+    score, _ = evaluate_mask_piece(binary)
+    return score
 
 
 def fast_mask_piece_score(
@@ -711,7 +724,12 @@ def select_threshold_candidate(
     thresholds: Iterable[int],
     preferred_threshold: int,
     invert_bright_majority: bool = False,
-) -> tuple[np.ndarray, int]:
+) -> tuple[
+    np.ndarray,
+    int,
+    tuple[int, int, int, float, float, float],
+    np.ndarray,
+]:
     """Choose the threshold that produces the most plausible piece mask.
 
     Otsu is retained as one candidate, but it can no longer unilaterally
@@ -755,8 +773,10 @@ def select_threshold_candidate(
     best_binary = np.zeros_like(measurement)
     best_threshold = int(preferred_threshold)
     best_key = None
+    best_score = (0, 0, 0, float("-inf"), float("-inf"), 0.0)
+    best_repaired = np.zeros_like(measurement)
     for _, threshold, binary in finalists:
-        score = mask_piece_score(binary)
+        score, repaired = evaluate_mask_piece(binary)
         key = (
             score[0],
             score[1],
@@ -770,12 +790,19 @@ def select_threshold_candidate(
             best_key = key
             best_binary = binary
             best_threshold = threshold
-    return best_binary, best_threshold
+            best_score = score
+            best_repaired = repaired
+    return best_binary, best_threshold, best_score, best_repaired
 
 
 def segment_intensity_pieces(
     work_image: np.ndarray,
-) -> tuple[np.ndarray, int]:
+) -> tuple[
+    np.ndarray,
+    int,
+    tuple[int, int, int, float, float, float],
+    np.ndarray,
+]:
     gray = cv2.cvtColor(work_image, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (5, 5), 0)
     otsu_threshold, _ = cv2.threshold(
@@ -809,7 +836,12 @@ def segment_intensity_pieces(
 
 def segment_colour_difference(
     work_image: np.ndarray,
-) -> tuple[np.ndarray, int]:
+) -> tuple[
+    np.ndarray,
+    int,
+    tuple[int, int, int, float, float, float],
+    np.ndarray,
+]:
     """Separate pieces from an arbitrary, approximately uniform sheet."""
     blurred = cv2.GaussianBlur(work_image, (5, 5), 0)
     lab = cv2.cvtColor(blurred, cv2.COLOR_BGR2LAB)
@@ -887,7 +919,9 @@ def segment_colour_difference(
     )
 
 
-def segment_bright_pieces(work_image: np.ndarray) -> tuple[np.ndarray, int]:
+def segment_bright_pieces(
+    work_image: np.ndarray,
+) -> tuple[np.ndarray, int, np.ndarray]:
     """Choose a fast primary mode and run the other only as fallback."""
     samples = work_image[::6, ::6].reshape(-1, 3)
     background_bgr = np.median(samples, axis=0)
@@ -901,19 +935,32 @@ def segment_bright_pieces(work_image: np.ndarray) -> tuple[np.ndarray, int]:
         primary = segment_intensity_pieces
         secondary = segment_colour_difference
 
-    primary_binary, primary_threshold = primary(work_image)
-    primary_score = mask_piece_score(primary_binary)
+    (
+        primary_binary,
+        primary_threshold,
+        primary_score,
+        primary_repaired,
+    ) = primary(work_image)
     if (
         primary_score[0] == MAX_PIECES
         and primary_score[1] == MAX_PIECES
         and primary_score[2] == 0
     ):
-        return primary_binary, primary_threshold
+        return primary_binary, primary_threshold, primary_repaired
 
-    secondary_binary, secondary_threshold = secondary(work_image)
-    if mask_piece_score(secondary_binary) > primary_score:
-        return secondary_binary, secondary_threshold
-    return primary_binary, primary_threshold
+    (
+        secondary_binary,
+        secondary_threshold,
+        secondary_score,
+        secondary_repaired,
+    ) = secondary(work_image)
+    if secondary_score > primary_score:
+        return (
+            secondary_binary,
+            secondary_threshold,
+            secondary_repaired,
+        )
+    return primary_binary, primary_threshold, primary_repaired
 
 
 def normalize_piece_components(binary: np.ndarray) -> np.ndarray:
@@ -978,9 +1025,8 @@ def polygon_edge_lengths(polygon: np.ndarray) -> list[float]:
 def detect_pieces(rectified: np.ndarray) -> tuple[list[Piece], np.ndarray, int]:
     x0, y0, x1, y1 = work_bounds()
     work_image = rectified[y0:y1, x0:x1]
-    binary, threshold = segment_bright_pieces(work_image)
-    binary = repair_print_notches(binary)
-    binary = normalize_piece_components(binary)
+    _, threshold, repaired_binary = segment_bright_pieces(work_image)
+    binary = normalize_piece_components(repaired_binary)
     contours, _ = cv2.findContours(
         binary,
         cv2.RETR_EXTERNAL,

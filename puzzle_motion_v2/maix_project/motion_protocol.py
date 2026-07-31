@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import struct
 import time
 from pathlib import Path
 
@@ -25,8 +26,12 @@ from puzzle_solver import (
 
 
 PROTOCOL_NAME = "maixcam2-puzzle-motion-v1"
-STM32_FRAME_PROTOCOL = "maixcam2-stm32-motion-v2"
-STM32_FRAME_HEADER = "AA55"
+STM32_FRAME_PROTOCOL = "maixcam2-stm32-motion-v3-binary"
+# Each fixed-size frame is: A5 5A, pick_x, pick_y, place_x, place_y,
+# angle, CRC8. Positions are signed millimetres and angle is signed whole deg.
+STM32_FRAME_HEADER = b"\xA5\x5A"
+STM32_FRAME_FORMAT = "<2s5hB"
+STM32_FRAME_SIZE = struct.calcsize(STM32_FRAME_FORMAT)
 PICKUP_RASTER_PX_PER_CM = 40.0
 MAGNET_RADIUS_CM = 0.50
 PICKUP_MARGIN_CM = 0.20
@@ -112,32 +117,42 @@ def normalize_angle_degrees(angle: float) -> float:
     return angle
 
 
-def format_stm32_frame(command: dict) -> str:
-    """Encode one move as a small newline-delimited STM32 command.
+def encode_stm32_frame(command: dict) -> bytes:
+    """Encode one fixed-size raw UART frame for the STM32F103.
 
-    The frame is ``AA55,pick_x,pick_y,place_x,place_y,angle``.  Coordinates
-    use integer millimetres and the angle uses tenths of a degree, avoiding
-    floating-point parsing on the STM32F103.  Sequence and piece ID remain in
-    the local plan only because the controller executes received frames in
-    order.
+    The received frame order is the execution order, so no step or piece ID
+    is transmitted.  A CRC8/XOR covers the header and five signed int16
+    values, allowing the controller to discard a corrupted frame quickly.
+    Positions retain integer-millimetre precision while rotation is rounded to
+    a whole degree, so no decimal component is sent to the controller.
     """
-    fields = (
-        STM32_FRAME_HEADER,
+    values = (
         int(round(float(command["pick_x_cm"]) * 10.0)),
         int(round(float(command["pick_y_cm"]) * 10.0)),
         int(round(float(command["place_x_cm"]) * 10.0)),
         int(round(float(command["place_y_cm"]) * 10.0)),
-        int(round(float(command["rotate_deg_clockwise"]) * 10.0)),
+        int(round(float(command["rotate_deg_clockwise"]))),
     )
-    return ",".join(str(value) for value in fields)
+    if any(value < -32768 or value > 32767 for value in values):
+        raise ValueError("STM32 motion field exceeds int16 range")
+    payload = struct.pack("<2s5h", STM32_FRAME_HEADER, *values)
+    checksum = 0
+    for value in payload:
+        checksum ^= value
+    return payload + bytes((checksum,))
+
+
+def format_stm32_frame(command: dict) -> str:
+    """Return a hex representation for debug files without changing UART data."""
+    return encode_stm32_frame(command).hex().upper()
 
 
 def send_stm32_frames(
-    frames: list[str],
+    commands: list[dict],
     device_path: str,
 ) -> tuple[bool, str]:
-    """Write compact commands to a USB CDC or UART character device."""
-    payload = ("\n".join(frames) + "\n").encode("ascii")
+    """Write raw fixed-size motion frames to a UART character device."""
+    payload = b"".join(encode_stm32_frame(command) for command in commands)
     try:
         descriptor = os.open(
             device_path,
@@ -157,7 +172,11 @@ def send_stm32_frames(
         return False, "{}: {}".format(device_path, error)
     finally:
         os.close(descriptor)
-    return True, "{} frames -> {}".format(len(frames), device_path)
+    return True, "{} binary frames ({} bytes) -> {}".format(
+        len(commands),
+        len(payload),
+        device_path,
+    )
 
 
 def point_to_segment_distance(
@@ -165,13 +184,26 @@ def point_to_segment_distance(
     start: np.ndarray,
     end: np.ndarray,
 ) -> float:
-    direction = end - start
-    denominator = float(np.dot(direction, direction))
+    point_x = float(point[0])
+    point_y = float(point[1])
+    start_x = float(start[0])
+    start_y = float(start[1])
+    direction_x = float(end[0]) - start_x
+    direction_y = float(end[1]) - start_y
+    denominator = (
+        direction_x * direction_x
+        + direction_y * direction_y
+    )
     if denominator <= 1e-12:
-        return float(np.linalg.norm(point - start))
-    fraction = float(np.dot(point - start, direction) / denominator)
-    closest = start + np.clip(fraction, 0.0, 1.0) * direction
-    return float(np.linalg.norm(point - closest))
+        return math.hypot(point_x - start_x, point_y - start_y)
+    fraction = (
+        (point_x - start_x) * direction_x
+        + (point_y - start_y) * direction_y
+    ) / denominator
+    fraction = min(1.0, max(0.0, fraction))
+    closest_x = start_x + fraction * direction_x
+    closest_y = start_y + fraction * direction_y
+    return math.hypot(point_x - closest_x, point_y - closest_y)
 
 
 def segments_intersect(
@@ -182,7 +214,11 @@ def segments_intersect(
 ) -> bool:
     """Return whether two closed 2-D segments touch or cross."""
     def cross(origin: np.ndarray, left: np.ndarray, right: np.ndarray) -> float:
-        return float(np.cross(left - origin, right - origin))
+        left_x = float(left[0]) - float(origin[0])
+        left_y = float(left[1]) - float(origin[1])
+        right_x = float(right[0]) - float(origin[0])
+        right_y = float(right[1]) - float(origin[1])
+        return left_x * right_y - left_y * right_x
 
     first_left = cross(first_start, first_end, second_start)
     first_right = cross(first_start, first_end, second_end)
@@ -315,18 +351,24 @@ def compensated_targets(
     non-overlapping layout rather than rejecting an otherwise valid task.
     """
     placements = list(solution.placements)
-    all_vertices = np.vstack(
-        [
-            np.asarray(item.vertices, dtype=np.float64)
-            for item in placements
-        ]
-    )
+    base_vertices = {
+        item.piece_id: np.asarray(item.vertices, dtype=np.float64)
+        for item in placements
+    }
+    all_vertices = np.vstack(list(base_vertices.values()))
     layout_center = 0.5 * (
         np.min(all_vertices, axis=0)
         + np.max(all_vertices, axis=0)
     )
+    radial_vectors = {
+        item.piece_id: (
+            polygon_centroid(base_vertices[item.piece_id])
+            - layout_center
+        )
+        for item in placements
+    }
     total_area = sum(
-        polygon_area(np.asarray(item.vertices, dtype=np.float64))
+        polygon_area(base_vertices[item.piece_id])
         for item in placements
     )
 
@@ -336,9 +378,8 @@ def compensated_targets(
         offsets: dict[int, np.ndarray] = {}
         targets: dict[int, np.ndarray] = {}
         for item in placements:
-            vertices = np.asarray(item.vertices, dtype=np.float64)
-            centroid = polygon_centroid(vertices)
-            offset = (centroid - layout_center) * (scale - 1.0)
+            vertices = base_vertices[item.piece_id]
+            offset = radial_vectors[item.piece_id] * (scale - 1.0)
             offsets[item.piece_id] = offset
             targets[item.piece_id] = vertices + offset
 
@@ -349,14 +390,9 @@ def compensated_targets(
             targets[piece_id] = targets[piece_id] + workspace_offset
             offsets[piece_id] = offsets[piece_id] + workspace_offset
 
-        overlap_area = 0.0
         minimum_gap_cm = float("inf")
         for first_index, first in enumerate(placements):
             for second in placements[first_index + 1:]:
-                overlap_area += overlap_area_raster(
-                    targets[first.piece_id],
-                    targets[second.piece_id],
-                )
                 minimum_gap_cm = min(
                     minimum_gap_cm,
                     polygon_minimum_distance(
@@ -364,7 +400,11 @@ def compensated_targets(
                         targets[second.piece_id],
                     ),
                 )
-        overlap_ratio = overlap_area / max(total_area, 1e-9)
+        # A strictly positive exact polygon gap proves that the pair cannot
+        # overlap.  The former implementation still rasterized all six pairs
+        # on every 0.005 scale step, even though all rejected steps only need
+        # the gap test and every accepted step is already disjoint.
+        overlap_ratio = 0.0
         best = (
             targets,
             offsets,
@@ -374,14 +414,29 @@ def compensated_targets(
             workspace_offset,
         )
         if (
-            overlap_ratio <= ASSEMBLY_MAX_OVERLAP_RATIO
-            and minimum_gap_cm >= ASSEMBLY_MIN_SEAM_GAP_CM
+            minimum_gap_cm >= ASSEMBLY_MIN_SEAM_GAP_CM
         ):
             return best
         scale += ASSEMBLY_CLEARANCE_SCALE_STEP
 
     if best is None:
         raise RuntimeError("Target layout does not fit inside the A4 target zone")
+    targets, offsets, scale, _, minimum_gap_cm, workspace_offset = best
+    overlap_area = 0.0
+    for first_index, first in enumerate(placements):
+        for second in placements[first_index + 1:]:
+            overlap_area += overlap_area_raster(
+                targets[first.piece_id],
+                targets[second.piece_id],
+            )
+    best = (
+        targets,
+        offsets,
+        scale,
+        overlap_area / max(total_area, 1e-9),
+        minimum_gap_cm,
+        workspace_offset,
+    )
     return best
 
 
@@ -390,6 +445,7 @@ def build_motion_plan(
     solution: Solution,
     output_path: str | None = None,
 ) -> dict:
+    plan_started = time.monotonic()
     placements = {
         placement.piece_id: placement
         for placement in solution.placements
@@ -402,6 +458,7 @@ def build_motion_plan(
         minimum_gap_cm,
         workspace_offset,
     ) = compensated_targets(solution)
+    clearance_finished = time.monotonic()
     pieces_payload = []
     commands = []
 
@@ -492,6 +549,7 @@ def build_motion_plan(
                 ],
             }
         )
+    pickup_finished = time.monotonic()
 
     plan = {
         "protocol": PROTOCOL_NAME,
@@ -555,6 +613,14 @@ def build_motion_plan(
             for command in commands
         ],
     }
+    print(
+        "Motion plan detail: clearance={:.3f}s pickup_payload={:.3f}s "
+        "total={:.3f}s".format(
+            clearance_finished - plan_started,
+            pickup_finished - clearance_finished,
+            pickup_finished - plan_started,
+        )
+    )
     if output_path:
         path = Path(output_path)
         path.parent.mkdir(parents=True, exist_ok=True)

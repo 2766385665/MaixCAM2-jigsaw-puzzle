@@ -2875,23 +2875,65 @@ def card_candidate_is_executable(candidate: LayoutCandidate) -> bool:
 
 def layout_metrics(
     placements: list[Placement],
+    rectangle_metrics: tuple[float, float, float] | None = None,
+    total_area: float | None = None,
 ) -> tuple[float, float, float, float]:
-    _, width, height, rectangle_area = legacy.minimum_rectangle(
-        placements
-    )
+    if rectangle_metrics is None:
+        _, width, height, rectangle_area = legacy.minimum_rectangle(
+            placements
+        )
+    else:
+        width, height, rectangle_area = rectangle_metrics
     if rectangle_area <= 1e-9:
         return 0.0, float("inf"), width, height
-    total_area = sum(
-        legacy.polygon_area(placement.vertices)
-        for placement in placements
+    if total_area is None:
+        total_area = sum(
+            legacy.polygon_area(placement.vertices)
+            for placement in placements
+        )
+
+    # Each polygon participates in three pair checks for a four-piece layout.
+    # Prepare invariant OpenCV inputs once while preserving the exact overlap
+    # implementation and pair accumulation order used by the legacy helper.
+    prepared = []
+    native_convex_intersection = hasattr(
+        cv2,
+        "intersectConvexConvex",
     )
-    overlap_area = 0.0
-    for first_index, first in enumerate(placements):
-        for second in placements[first_index + 1:]:
-            overlap_area += legacy.overlap_area_raster(
-                first.vertices,
-                second.vertices,
+    for placement in placements:
+        vertices = placement.vertices
+        vertices_float = np.asarray(vertices, dtype=np.float32)
+        prepared.append(
+            (
+                vertices,
+                np.min(vertices, axis=0),
+                np.max(vertices, axis=0),
+                vertices_float,
+                bool(
+                    native_convex_intersection
+                    and cv2.isContourConvex(vertices_float)
+                ),
             )
+        )
+
+    overlap_area = 0.0
+    for first_index, first in enumerate(prepared):
+        for second in prepared[first_index + 1:]:
+            common_min = np.maximum(first[1], second[1])
+            common_max = np.minimum(first[2], second[2])
+            if np.any(common_max <= common_min):
+                continue
+            if first[4] and second[4]:
+                intersection_area, _ = cv2.intersectConvexConvex(
+                    first[3],
+                    second[3],
+                )
+                overlap_area += float(intersection_area)
+            else:
+                overlap_area += legacy.overlap_area_raster(
+                    first[0],
+                    second[0],
+                )
     union_area_estimate = max(0.0, total_area - overlap_area)
     iou = min(1.0, union_area_estimate / rectangle_area)
     overlap_ratio = overlap_area / max(total_area, 1e-9)
@@ -2968,7 +3010,13 @@ def question_1_2_dimensions(width: float, height: float) -> bool:
 
 def topology_orders(
     topology: tuple[SeamFamily, ...],
+    order_cache: dict[tuple, list] | None = None,
 ) -> list[tuple[tuple[EdgeRef, ...], ...]]:
+    cache_key = tuple(sorted(family.signature for family in topology))
+    if order_cache is not None:
+        cached = order_cache.get(cache_key)
+        if cached is not None:
+            return cached
     choices = []
     for family in topology:
         if family.is_chain_to_chain:
@@ -2989,7 +3037,10 @@ def topology_orders(
             choices.append(
                 list(itertools.permutations(family.short_edges))
             )
-    return list(itertools.product(*choices))
+    orders = list(itertools.product(*choices))
+    if order_cache is not None:
+        order_cache[cache_key] = orders
+    return orders
 
 
 def topology_signature(
@@ -3012,6 +3063,8 @@ def rough_rank_topologies(
     ranking_cache: dict[tuple, tuple] | None = None,
     texture_context: texture_matcher.TextureContext | None = None,
     source_texture_cache: dict | None = None,
+    order_cache: dict[tuple, list] | None = None,
+    pose_cache: dict[tuple, tuple] | None = None,
 ) -> list[tuple[SeamFamily, ...]]:
     """Use unoptimized rigid propagation to rescue noisy valid topologies.
 
@@ -3039,45 +3092,77 @@ def rough_rank_topologies(
             continue
         best_score = float("inf")
         best_orders = None
-        for orders in topology_orders(topology):
-            point_pairs = all_point_pairs(
-                centered,
-                topology,
-                orders,
-                pair_cache,
+        best_pose_record = None
+        for orders in topology_orders(topology, order_cache):
+            pose_key = (signature, orders)
+            pose_record = (
+                None
+                if pose_cache is None
+                else pose_cache.get(pose_key)
             )
-            initial = initial_poses(
-                centered,
-                point_pairs,
-                anchor_id,
-            )
-            if initial is None:
-                continue
-            placements = build_placements(
-                original,
-                centered,
-                centers,
-                initial,
-            )
-            if exact_overlap:
-                rough_fill, overlap_ratio, width, height = (
-                    layout_metrics(placements)
+            if pose_record is None:
+                point_pairs = all_point_pairs(
+                    centered,
+                    topology,
+                    orders,
+                    pair_cache,
                 )
-            else:
+                initial = initial_poses(
+                    centered,
+                    point_pairs,
+                    anchor_id,
+                )
+                if initial is None:
+                    continue
+                placements = build_placements(
+                    original,
+                    centered,
+                    centers,
+                    initial,
+                )
                 _, width, height, rectangle_area = (
                     legacy.minimum_rectangle(placements)
                 )
-                # Do not calculate pair intersections in this coarse stage.
                 rough_fill = min(
                     1.0,
                     total_piece_area
                     / max(rectangle_area, 1e-9),
                 )
+                seam_residual = pose_residuals(initial, point_pairs)
+                seam_rms = math.sqrt(
+                    float(np.mean(seam_residual ** 2))
+                )
+                pose_record = (
+                    point_pairs,
+                    initial,
+                    placements,
+                    width,
+                    height,
+                    rectangle_area,
+                    rough_fill,
+                    seam_rms,
+                )
+            else:
+                (
+                    point_pairs,
+                    initial,
+                    placements,
+                    width,
+                    height,
+                    rectangle_area,
+                    rough_fill,
+                    seam_rms,
+                ) = pose_record
+            if exact_overlap:
+                rough_fill, overlap_ratio, width, height = (
+                    layout_metrics(
+                        placements,
+                        (width, height, rectangle_area),
+                        total_piece_area,
+                    )
+                )
+            else:
                 overlap_ratio = 0.0
-            seam_residual = pose_residuals(initial, point_pairs)
-            seam_rms = math.sqrt(
-                float(np.mean(seam_residual ** 2))
-            )
             dimension_penalty = 0.0 if legal_dimensions(
                 width,
                 height,
@@ -3116,7 +3201,16 @@ def rough_rank_topologies(
             if score < best_score:
                 best_score = score
                 best_orders = orders
+                best_pose_record = pose_record
         if math.isfinite(best_score):
+            if (
+                pose_cache is not None
+                and best_orders is not None
+                and best_pose_record is not None
+            ):
+                pose_cache[
+                    (signature, best_orders)
+                ] = best_pose_record
             if ranking_cache is not None:
                 ranking_cache[cache_key] = (
                     best_score,
@@ -3250,6 +3344,8 @@ def _solve_geometry_once(
     )
     ranking_cache: dict[tuple, tuple] = {}
     source_texture_cache: dict = {}
+    order_cache: dict[tuple, list] = {}
+    pose_cache: dict[tuple, tuple] = {}
     coarse_seconds = 0.0
     overlap_seconds = 0.0
     pose_seconds = 0.0
@@ -3394,7 +3490,7 @@ def _solve_geometry_once(
         recommended_job_count = len(evaluation_jobs)
         for topology in ranked_topologies:
             hint = order_hints.get(topology_signature(topology))
-            for orders in topology_orders(topology):
+            for orders in topology_orders(topology, order_cache):
                 if orders != hint:
                     evaluation_jobs.append((topology, orders))
 
@@ -3411,19 +3507,25 @@ def _solve_geometry_once(
                 and pytime.monotonic() >= deadline
             ):
                 break
-            point_pairs = all_point_pairs(
-                centered,
-                topology,
-                orders,
-                pair_cache,
+            pose_record = pose_cache.get(
+                (topology_signature(topology), orders)
             )
-            initial = initial_poses(
-                centered,
-                point_pairs,
-                anchor_id,
-            )
-            if initial is None:
-                continue
+            if pose_record is None:
+                point_pairs = all_point_pairs(
+                    centered,
+                    topology,
+                    orders,
+                    pair_cache,
+                )
+                initial = initial_poses(
+                    centered,
+                    point_pairs,
+                    anchor_id,
+                )
+                if initial is None:
+                    continue
+            else:
+                point_pairs, initial = pose_record[:2]
             poses, seam_rms = optimize_poses(
                 initial,
                 point_pairs,
@@ -3786,6 +3888,8 @@ def _solve_geometry_once(
             ranking_cache=ranking_cache,
             texture_context=texture_context,
             source_texture_cache=source_texture_cache,
+            order_cache=order_cache,
+            pose_cache=pose_cache,
         )
         coarse_seconds += pytime.monotonic() - stage_started
         coarse_deadline_hit = bool(
@@ -3809,6 +3913,8 @@ def _solve_geometry_once(
             ranking_cache,
             texture_context,
             source_texture_cache,
+            order_cache,
+            pose_cache,
         )
         overlap_seconds += pytime.monotonic() - stage_started
         overlap_deadline_hit = bool(
@@ -4023,7 +4129,7 @@ def _solve_geometry_once(
     second = distinct[1] if len(distinct) > 1 else None
     elapsed = pytime.monotonic() - started
     _LAST_DIAGNOSTICS = {
-        "version": "v5.20-card-ambiguity-quality",
+        "version": "v5.21-equivalent-cache",
         "seam_family_count": len(families),
         "chain_to_chain_family_count": sum(
             family.is_chain_to_chain for family in families

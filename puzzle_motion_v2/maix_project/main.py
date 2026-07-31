@@ -23,18 +23,17 @@ import texture_matcher
 APP_VERSION = "5.9-card-row-swap-texture"
 SOLVER_MAX_SECONDS = 23.0
 OUTPUT_DIR = "/root/puzzle_motion_output"
-# Use MaixCAM2 UART2 so motion frames do not share UART0 with system logs.
-# Connect B0/TX to the peer RX, B1/RX to the peer TX, and share GND.
-MOTION_SERIAL_DEVICE = "/dev/ttyS2"
+# UART0 is the MaixCAM2 system UART.  Connect U0T to the STM32 RX, U0R to the
+# STM32 TX, and share GND.  The STM32 must ignore boot and system log bytes.
+MOTION_SERIAL_DEVICE = "/dev/ttyS0"
 MOTION_SERIAL_BAUDRATE = 115200
-MOTION_SERIAL_PIN_FUNCTIONS = {
-    "B0": "UART2_TX",
-    "B1": "UART2_RX",
-}
+# UART0 uses the board's default U0T/U0R mapping; do not remap system pins.
+MOTION_SERIAL_PIN_FUNCTIONS = {}
 COLORS = piece_vision.COLORS
 
 
 def solve_detected_pieces(pieces, rectified=None):
+    solve_started = time.monotonic()
     source_pieces_cm = [
         np.asarray(piece.polygon, dtype=np.float64)
         / piece_vision.PX_PER_CM
@@ -48,17 +47,25 @@ def solve_detected_pieces(pieces, rectified=None):
             piece_vision.PX_PER_CM,
         )
     )
+    texture_ready = time.monotonic()
     solution, nodes = puzzle_solver.solve_geometry(
         source_pieces_cm,
         max_seconds=SOLVER_MAX_SECONDS,
         texture_context=texture_context,
     )
+    solver_finished = time.monotonic()
     diagnostics = puzzle_solver.last_diagnostics()
     print(
         "V3 solver diagnostics:",
         json.dumps(diagnostics, ensure_ascii=False),
     )
     if solution is None:
+        print(
+            "Solve timing: texture_context={:.3f}s solver={:.3f}s".format(
+                texture_ready - solve_started,
+                solver_finished - texture_ready,
+            )
+        )
         if diagnostics.get("timed_out"):
             return None, "Solver timeout {:.1f}s".format(
                 diagnostics.get(
@@ -71,9 +78,21 @@ def solve_detected_pieces(pieces, rectified=None):
             nodes,
         )
     final_solution = puzzle_solver.canonical_target_solution(solution)
+    canonical_finished = time.monotonic()
     plan = motion_protocol.build_motion_plan(
         source_pieces_cm,
         final_solution,
+    )
+    plan_finished = time.monotonic()
+    print(
+        "Solve timing: texture_context={:.3f}s solver={:.3f}s "
+        "canonical={:.3f}s motion_plan={:.3f}s total={:.3f}s".format(
+            texture_ready - solve_started,
+            solver_finished - texture_ready,
+            canonical_finished - solver_finished,
+            plan_finished - canonical_finished,
+            plan_finished - solve_started,
+        )
     )
     plan["solver_diagnostics"] = diagnostics
     clearance = plan["solution"]["motion_clearance"]
@@ -102,26 +121,10 @@ def solve_detected_pieces(pieces, rectified=None):
     )
 
 
-def send_motion_plan(
-    plan: dict,
-    serial_port=None,
-) -> tuple[bool, str]:
-    """Send only the compact STM32 frames, never the debug JSON."""
-    payload = "\n".join(plan["stm32_frames"]) + "\n"
-    if serial_port is not None:
-        try:
-            serial_port.write_str(payload)
-        except Exception as error:
-            return False, "{}: {}".format(
-                MOTION_SERIAL_DEVICE,
-                error,
-            )
-        return True, "{} frames -> {}".format(
-            len(plan["stm32_frames"]),
-            MOTION_SERIAL_DEVICE,
-        )
+def send_motion_plan(plan: dict) -> tuple[bool, str]:
+    """Send raw STM32 frames; the plan keeps hex strings only for debugging."""
     return motion_protocol.send_stm32_frames(
-        plan["stm32_frames"],
+        plan["commands"],
         MOTION_SERIAL_DEVICE,
     )
 
@@ -358,6 +361,7 @@ def run_maix() -> int:
                     ensure_bgr=False,
                     copy=True,
                 )
+                captured_at = time.monotonic()
                 mode = "frozen"
                 message = "Detecting..."
                 detecting_source = piece_vision.draw_camera_guide(last_raw)
@@ -373,15 +377,27 @@ def run_maix() -> int:
                 ))
 
                 last_rectified, _ = piece_vision.rectify_a4(last_raw)
+                rectified_at = time.monotonic()
                 (
                     last_pieces,
                     last_binary,
                     threshold,
                 ) = piece_vision.detect_pieces(last_rectified)
+                detected_at = time.monotonic()
                 last_annotated = piece_vision.draw_detection(
                     last_rectified,
                     last_pieces,
                     threshold,
+                )
+                annotated_at = time.monotonic()
+                print(
+                    "Vision timing: capture={:.3f}s rectify={:.3f}s "
+                    "detect={:.3f}s annotate={:.3f}s".format(
+                        captured_at - button_started,
+                        rectified_at - captured_at,
+                        detected_at - rectified_at,
+                        annotated_at - detected_at,
+                    )
                 )
 
                 message = "Solving... max {:.0f}s".format(
@@ -404,10 +420,7 @@ def run_maix() -> int:
                 print(message)
                 if last_plan is not None:
                     serial_started = time.monotonic()
-                    sent, serial_message = send_motion_plan(
-                        last_plan,
-                        motion_serial,
-                    )
+                    sent, serial_message = send_motion_plan(last_plan)
                     serial_finished = time.monotonic()
                     print(
                         "Motion serial {}: {}".format(
@@ -424,7 +437,7 @@ def run_maix() -> int:
                         )
                     )
                     if sent:
-                        message += " UART2 sent"
+                        message += " UART0 sent"
                 # Show the completed placement immediately.  Debug JSON and
                 # image saving can take seconds on the SD card, so they must
                 # not delay the operator-facing result frame.

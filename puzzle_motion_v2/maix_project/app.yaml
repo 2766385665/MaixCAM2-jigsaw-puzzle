@@ -1,0 +1,15 @@
+id: w888
+name: 26_e
+version: 1.0.0
+author: '0'
+icon: app.png
+desc: '0'
+files:
+  - main.py
+  - make_demo_plan.py
+  - motion_protocol.py
+  - uart0_test.py
+  - piece_vision.py
+  - puzzle_solver_v3.py
+  - puzzle_solver.py
+  - texture_matcher.py
