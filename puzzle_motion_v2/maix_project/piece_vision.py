@@ -36,7 +36,7 @@ import numpy as np
 
 # -------------------------- adjustable parameters ---------------------------
 
-APP_VERSION = "1.12-fast-threshold-shortlist"
+APP_VERSION = "1.13-near-limit-edge-preserve"
 CAMERA_WIDTH = 2560
 CAMERA_HEIGHT = 1440
 CAMERA_FPS = 30
@@ -78,11 +78,21 @@ EDGE_WARNING_MARGIN_CM = 0.15
 # amount. This suppresses threshold-sensitive bevels while preserving a real
 # 1 cm edge when its two corners measurably change the outline.
 VERTEX_COMPLEXITY_PENALTY_CM = 0.03
+# A measured 1 cm cut can fluctuate below 1 cm after rectification and line
+# fitting. Preserve a near-limit edge when both endpoints are genuine corners;
+# otherwise the generic extra-vertex penalty tends to collapse it into a
+# triangle.
+SHORT_EDGE_EVIDENCE_MAX_CM = MIN_LEGAL_EDGE_CM + EDGE_WARNING_MARGIN_CM
+SHORT_EDGE_ENDPOINT_MAX_TURN_DEG = 150.0
+SHORT_EDGE_PRESERVATION_BONUS_CM = 0.04
 # Thresholding can insert a vertex along an otherwise straight cut edge.
-# Require both a very shallow turn and a small millimetre-scale line deviation
-# before collapsing it, so genuine short edges and obtuse corners survive.
+# The tolerated deviation scales with the full candidate side: perspective and
+# blur can move a point by a few millimetres on a 10 cm edge, but must not
+# erase a visibly bent short edge.
 COLLINEAR_VERTEX_MIN_TURN_DEG = 165.0
 COLLINEAR_VERTEX_MAX_DEVIATION_CM = 0.20
+COLLINEAR_VERTEX_SPAN_RATIO = 0.05
+COLLINEAR_VERTEX_DEVIATION_CAP_CM = 0.45
 # Printed card artwork can meet a cut edge and make the segmented component
 # look like it has a narrow physical notch.  Only repair a component when the
 # normal polygon fit has already failed and its area is still close to its
@@ -365,10 +375,20 @@ def remove_nearly_collinear_vertices(
                     following,
                 )[0]
             )
+            endpoint_span_cm = float(
+                np.linalg.norm(following - previous)
+            ) / PX_PER_CM
+            maximum_deviation_cm = max(
+                COLLINEAR_VERTEX_MAX_DEVIATION_CM,
+                min(
+                    COLLINEAR_VERTEX_DEVIATION_CAP_CM,
+                    COLLINEAR_VERTEX_SPAN_RATIO * endpoint_span_cm,
+                ),
+            )
             if (
                 turn_degrees >= COLLINEAR_VERTEX_MIN_TURN_DEG
                 and deviation
-                <= COLLINEAR_VERTEX_MAX_DEVIATION_CM * PX_PER_CM
+                <= maximum_deviation_cm * PX_PER_CM
             ):
                 removable.append((deviation, index))
         if not removable:
@@ -376,6 +396,47 @@ def remove_nearly_collinear_vertices(
         _, remove_index = min(removable)
         vertices = np.delete(vertices, remove_index, axis=0)
     return vertices
+
+
+def has_supported_near_limit_edge(polygon: np.ndarray) -> bool:
+    """Return whether a near-1 cm edge has two non-collinear endpoints."""
+    vertices = polygon.reshape(-1, 2).astype(np.float32)
+    minimum_length_px = (
+        MIN_LEGAL_EDGE_CM - EDGE_WARNING_MARGIN_CM
+    ) * PX_PER_CM
+    maximum_length_px = SHORT_EDGE_EVIDENCE_MAX_CM * PX_PER_CM
+    for index in range(len(vertices)):
+        current = vertices[index]
+        following = vertices[(index + 1) % len(vertices)]
+        edge_length = float(np.linalg.norm(following - current))
+        if not minimum_length_px <= edge_length <= maximum_length_px:
+            continue
+        endpoint_turns = []
+        for vertex_id in (index, (index + 1) % len(vertices)):
+            previous = vertices[vertex_id - 1]
+            vertex = vertices[vertex_id]
+            next_vertex = vertices[(vertex_id + 1) % len(vertices)]
+            incoming = vertex - previous
+            outgoing = next_vertex - vertex
+            incoming_length = float(np.linalg.norm(incoming))
+            outgoing_length = float(np.linalg.norm(outgoing))
+            if incoming_length < 1e-6 or outgoing_length < 1e-6:
+                endpoint_turns.append(180.0)
+                continue
+            cosine = float(
+                np.clip(
+                    np.dot(incoming, outgoing)
+                    / (incoming_length * outgoing_length),
+                    -1.0,
+                    1.0,
+                )
+            )
+            endpoint_turns.append(
+                180.0 - math.degrees(math.acos(cosine))
+            )
+        if max(endpoint_turns) <= SHORT_EDGE_ENDPOINT_MAX_TURN_DEG:
+            return True
+    return False
 
 
 def fit_polygon(contour: np.ndarray) -> np.ndarray | None:
@@ -413,6 +474,8 @@ def fit_polygon(contour: np.ndarray) -> np.ndarray | None:
             contour_error_cm
             + VERTEX_COMPLEXITY_PENALTY_CM * (len(cleaned) - 3)
         )
+        if has_supported_near_limit_edge(cleaned):
+            score -= SHORT_EDGE_PRESERVATION_BONUS_CM
         old = candidates.get(signature)
         if old is None or score < old[0]:
             candidates[signature] = (score, cleaned)
@@ -1103,6 +1166,28 @@ def compose_screen(
     px = (640 - preview.shape[1]) // 2
     py = (360 - preview.shape[0]) // 2
     screen[py:py + preview.shape[0], px:px + preview.shape[1]] = preview
+
+    if mode in ("ready", "frozen"):
+        button_color = (0, 180, 0) if mode == "ready" else (0, 150, 255)
+        button_text = "START" if mode == "ready" else "START NEXT"
+        cv2.rectangle(screen, (10, 375), (310, 465), button_color, -1)
+        cv2.rectangle(screen, (330, 375), (630, 465), (180, 90, 0), -1)
+        cv2.putText(
+            screen,
+            button_text,
+            (30 if mode == "frozen" else 70, 435),
+            cv2.FONT_HERSHEY_SIMPLEX, 1.25, (255, 255, 255), 3, cv2.LINE_AA,
+        )
+        cv2.putText(
+            screen, "SAVE", (420, 435),
+            cv2.FONT_HERSHEY_SIMPLEX, 1.25, (255, 255, 255), 3, cv2.LINE_AA,
+        )
+        if message:
+            cv2.putText(
+                screen, message[:42], (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2, cv2.LINE_AA,
+            )
+        return screen
 
     left_color = (0, 150, 255) if mode == "frozen" else (0, 180, 0)
     cv2.rectangle(screen, (10, 375), (310, 465), left_color, -1)

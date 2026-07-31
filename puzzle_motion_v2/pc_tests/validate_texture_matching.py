@@ -29,18 +29,25 @@ def locate_real_captures() -> list[tuple[str, Path, Path]]:
     captures = []
     seen = set()
     for root in roots:
-        for capture_id in (
-            "123753",
-            "131419",
-            "135433",
-            "141104",
-            "142730",
+        for capture_date, capture_id in (
+            ("20260729", "102952"),
+            ("20260729", "112159"),
+            ("20260729", "123753"),
+            ("20260729", "131419"),
+            ("20260729", "135433"),
+            ("20260729", "141104"),
+            ("20260729", "142730"),
+            # Regression for the card ambiguity gate: its first candidate
+            # is a verified 0.962-IoU rectangle, while the 0.935-IoU runner
+            # up is below the texture-comparison quality floor.
+            ("20260731", "012106"),
         ):
             result = (
                 root
                 / "Downloads"
                 / (
-                    "pieces_20260729_{}_result.json".format(
+                    "pieces_{}_{}_result.json".format(
+                        capture_date,
                         capture_id
                     )
                 )
@@ -49,7 +56,8 @@ def locate_real_captures() -> list[tuple[str, Path, Path]]:
                 root
                 / "Downloads"
                 / (
-                    "pieces_20260729_{}_rectified.jpg".format(
+                    "pieces_{}_{}_rectified.jpg".format(
+                        capture_date,
                         capture_id
                     )
                 )
@@ -100,7 +108,40 @@ def make_source_image() -> np.ndarray:
     return image
 
 
+def validate_blank_white_geometry_mode() -> int:
+    """Pure white Q1/Q2 pieces must not activate card-only constraints."""
+    source = np.full((160, 320, 3), (210, 145, 65), dtype=np.uint8)
+    pieces = [
+        np.asarray(
+            [[1.0, 1.0], [3.0, 1.0], [3.0, 3.0], [1.0, 3.0]],
+            dtype=np.float64,
+        ),
+        np.asarray(
+            [[5.0, 1.0], [7.0, 1.0], [7.0, 3.0], [5.0, 3.0]],
+            dtype=np.float64,
+        ),
+    ]
+    for piece in pieces:
+        cv2.fillPoly(
+            source,
+            [np.round(piece * PX_PER_CM).astype(np.int32)],
+            (242, 242, 242),
+        )
+    context = texture_matcher.build_context(source, PX_PER_CM)
+    texture_matcher.prepare_context_for_pieces(context, pieces)
+    if context.white_card_confidence >= solver.WHITE_CARD_MODE_CONFIDENCE:
+        print(
+            "FAIL blank white geometry activated card mode",
+            context.white_card_confidence,
+        )
+        return 1
+    print("PASS blank white geometry stays in geometry mode")
+    return 0
+
+
 def main() -> int:
+    if validate_blank_white_geometry_mode() != 0:
+        return 1
     source = make_source_image()
     context = texture_matcher.build_context(source, PX_PER_CM)
     pieces = [
@@ -193,7 +234,7 @@ def main() -> int:
         )
         real_solution, real_nodes = solver.solve_geometry(
             pieces,
-            max_seconds=14.0,
+            max_seconds=(20.0 if capture_id == "012106" else 14.0),
             texture_context=real_context,
         )
         diagnostics = solver.last_diagnostics()
@@ -293,6 +334,93 @@ def main() -> int:
                         piece_id + 1: np.round(center, 4).tolist()
                         for piece_id, center in target_centroids.items()
                     },
+                )
+                return 1
+        if capture_id == "102952":
+            layout_variant = str(
+                diagnostics.get("best_layout_variant", "")
+            )
+            if "half_turn_P1_P2" not in layout_variant:
+                print(
+                    "FAIL real capture 102952 did not turn the "
+                    "user-confirmed P1/P2 card column",
+                    layout_variant,
+                )
+                return 1
+            left_column = 0.5 * (
+                target_centroids[2] + target_centroids[3]
+            )
+            right_column = 0.5 * (
+                target_centroids[0] + target_centroids[1]
+            )
+            if right_column[0] - left_column[0] <= 1.0:
+                print(
+                    "FAIL real capture 102952 put the patterned "
+                    "P1/P2 edge on the outside instead of the right",
+                    {
+                        piece_id + 1: np.round(center, 4).tolist()
+                        for piece_id, center in target_centroids.items()
+                    },
+                )
+                return 1
+        if capture_id == "112159":
+            # User-confirmed complete card: P4/P3 and P2/P1 are the two
+            # columns.  Their top-to-bottom directions must agree.  The old
+            # v4.6 result had P3/P4 reversed, making these vectors point in
+            # opposite directions even though the rectangle and white frame
+            # were both valid.
+            left_direction = (
+                target_centroids[3] - target_centroids[2]
+            )
+            right_direction = (
+                target_centroids[1] - target_centroids[0]
+            )
+            direction_cosine = float(
+                np.dot(left_direction, right_direction)
+                / max(
+                    np.linalg.norm(left_direction)
+                    * np.linalg.norm(right_direction),
+                    1e-9,
+                )
+            )
+            if direction_cosine <= 0.5:
+                print(
+                    "FAIL real capture 112159 left card column "
+                    "is upside down",
+                    {
+                        "direction_cosine": direction_cosine,
+                        "centroids": {
+                            piece_id + 1: np.round(
+                                center,
+                                4,
+                            ).tolist()
+                            for piece_id, center
+                            in target_centroids.items()
+                        },
+                    },
+                )
+                return 1
+        if capture_id == "012106":
+            if diagnostics.get("early_accept_reason") != (
+                "two_by_two_grid_quality_gate"
+            ):
+                print(
+                    "FAIL real capture 012106 did not preserve its "
+                    "2x2 quality decision"
+                )
+                return 1
+            if diagnostics.get("fallback_reason") == (
+                "ambiguous_global_candidate"
+            ):
+                print(
+                    "FAIL real capture 012106 let a below-floor "
+                    "runner-up trigger ambiguity"
+                )
+                return 1
+            if diagnostics.get("best_iou", 0.0) < solver.TEXTURE_ACCEPT_IOU:
+                print(
+                    "FAIL real capture 012106 lost the verified "
+                    "card candidate"
                 )
                 return 1
         if diagnostics.get("best_layout_perimeter_confidence", 0.0) < 0.60:

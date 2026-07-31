@@ -353,7 +353,7 @@ def make_target_pieces(
         masks = (0b0000, 0b0001, 0b0011, 0b0101, 0b0111, 0b1111)
     else:
         # Only bend the longer left/right spokes. Bending the shorter
-        # top/bottom spokes can conflict with the 2 cm minimum-edge rule when
+        # top/bottom spokes can conflict with the 1 cm minimum-edge rule when
         # the legal rectangle height is close to its 5 cm lower limit.
         masks = (0b0000, 0b0010, 0b1000, 0b1010)
 
@@ -373,10 +373,10 @@ def make_target_pieces(
         )
         if topology == "partial_sides":
             boundary_points = [
-                np.array([rng.uniform(2.05, width - 2.05), 0.0]),
-                np.array([width, rng.uniform(2.05, height - 2.05)]),
-                np.array([rng.uniform(2.05, width - 2.05), height]),
-                np.array([0.0, rng.uniform(2.05, height - 2.05)]),
+                np.array([rng.uniform(1.05, width - 1.05), 0.0]),
+                np.array([width, rng.uniform(1.05, height - 1.05)]),
+                np.array([rng.uniform(1.05, width - 1.05), height]),
+                np.array([0.0, rng.uniform(1.05, height - 1.05)]),
             ]
         else:
             boundary_points = corners
@@ -422,7 +422,7 @@ def make_target_pieces(
 
         polygons = [Polygon(piece) for piece in pieces]
         all_edges_legal = all(
-            edge_length(a, b) >= 2.0
+            edge_length(a, b) >= 1.0
             for piece in pieces
             for _, a, b in polygon_edges(piece)
         )
@@ -618,7 +618,7 @@ def make_random_non_puzzle(rng: random.Random) -> list[np.ndarray]:
             edge_length(a, b)
             for _, a, b in polygon_edges(triangle)
         ]
-        if min(lengths) >= 2.0 and Polygon(triangle).area >= 3.0:
+        if min(lengths) >= 1.0 and Polygon(triangle).area >= 3.0:
             angle = rng.uniform(-math.pi, math.pi)
             pieces.append(rotate_about_centroid(triangle, angle))
     return pieces

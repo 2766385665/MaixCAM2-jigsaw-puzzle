@@ -2199,13 +2199,15 @@ def card_layout_variants(
     Four-piece card cuts commonly produce two already coherent half-card
     columns.  Edge-topology enumeration can lock those columns to the wrong
     left/right side because both geometric arrangements have the same shape.
-    It can also put either rectangular two-piece column upside down.  Turning
-    the complete column by 180 degrees preserves its occupied rectangle but
-    changes which printed border and artwork face the outside.
+    It can also put the two pieces of one column in the wrong vertical slots,
+    or put either rectangular two-piece column upside down.  The former is
+    invisible to geometry when the pieces have matching card-cut shapes, but
+    leaves printed artwork on the finished card border.
 
     The alternatives are rigid motions only:
 
     * exchange the two columns by translation;
+    * exchange the two vertical slots inside either column by translation;
     * turn either complete column, or both columns, by 180 degrees.
 
     This is deliberately not a per-piece special case.  A single arbitrary
@@ -2315,6 +2317,50 @@ def card_layout_variants(
             )
         return result
 
+    def swap_column_rows(layout, group_ids):
+        """Exchange the two occupied slots in one already coherent column."""
+        if len(group_ids) != 2:
+            return layout
+        first, second = sorted(group_ids)
+        first_center = np.mean(
+            np.asarray(layout[first].vertices, dtype=np.float64),
+            axis=0,
+        )
+        second_center = np.mean(
+            np.asarray(layout[second].vertices, dtype=np.float64),
+            axis=0,
+        )
+        deltas = {
+            first: second_center - first_center,
+            second: first_center - second_center,
+        }
+        result = []
+        for index, item in enumerate(layout):
+            delta = deltas.get(index)
+            if delta is None:
+                result.append(
+                    Placement(
+                        piece_id=item.piece_id,
+                        vertices=np.asarray(item.vertices).copy(),
+                        rotation=np.asarray(item.rotation).copy(),
+                        translation=np.asarray(item.translation).copy(),
+                        used_edges=item.used_edges,
+                        edge_coverage=item.edge_coverage,
+                    )
+                )
+                continue
+            result.append(
+                Placement(
+                    piece_id=item.piece_id,
+                    vertices=np.asarray(item.vertices) + delta,
+                    rotation=np.asarray(item.rotation).copy(),
+                    translation=np.asarray(item.translation) + delta,
+                    used_edges=item.used_edges,
+                    edge_coverage=item.edge_coverage,
+                )
+            )
+        return result
+
     def half_turn_group(layout, group_ids):
         group_points = np.concatenate(
             [
@@ -2393,26 +2439,39 @@ def card_layout_variants(
         seen.add(signature)
         variants.append((name, layout))
 
-    append_if_legal("topology", placements, always=True)
+    def row_swap_name(group_ids):
+        return "column_row_swap_P{}".format(
+            "_P".join(
+                str(int(placements[index].piece_id) + 1)
+                for index in sorted(group_ids)
+            )
+        )
+
     groups = column_groups(placements)
-    # During the global topology search only test the original and exchanged
-    # columns.  Half turns are a second-stage orientation decision; mixing
-    # them into topology ranking lets an accidental seam from another
+    # During global topology search retain only the five rigid slot
+    # arrangements. Half turns are a second-stage orientation decision;
+    # mixing them into topology ranking lets an accidental seam from another
     # topology steal the solution.
-    base_layouts = (
-        [("topology", placements, groups)]
-        if include_half_turns
-        else []
-    )
+    base_layouts = []
+
+    def append_base_layout(name, layout):
+        append_if_legal(name, layout, always=name == "topology")
+        base_groups = column_groups(layout)
+        if include_half_turns and base_groups is not None:
+            base_layouts.append((name, layout, base_groups))
+
+    append_base_layout("topology", placements)
     if groups is not None:
         swapped = translate_columns(placements, groups)
-        swapped_groups = column_groups(swapped)
-        append_if_legal("column_swap", swapped)
-        if swapped_groups is not None:
-            if include_half_turns:
-                base_layouts.append(
-                    ("column_swap", swapped, swapped_groups)
-                )
+        append_base_layout("column_swap", swapped)
+        low_ids = groups[1]
+        high_ids = groups[2]
+        low_swapped = swap_column_rows(placements, low_ids)
+        high_swapped = swap_column_rows(placements, high_ids)
+        append_base_layout(row_swap_name(low_ids), low_swapped)
+        append_base_layout(row_swap_name(high_ids), high_swapped)
+        both_swapped = swap_column_rows(low_swapped, high_ids)
+        append_base_layout("both_column_row_swap", both_swapped)
 
     # Test either column independently.  Turning both columns is only a
     # global 180-degree rotation of the entire finished card; the target
@@ -2454,12 +2513,12 @@ def refine_card_column_orientation(
     original: list[np.ndarray],
     texture_context: texture_matcher.TextureContext | None,
 ) -> tuple[LayoutCandidate, list[dict]]:
-    """Choose card-column direction only after geometry chose a topology.
+    """Choose card artwork orientation only after geometry chose a topology.
 
     A half turn of one complete two-piece column leaves the rectangle and its
     edge topology unchanged.  It must therefore not participate in the large
     global topology search.  At this bounded second stage we compare at most
-    eight rigid variants of the already selected rectangle and use the
+    fifteen rigid variants of the already selected rectangle and use the
     pattern measured across its *actual* internal contacts as the primary
     direction cue.
     """
@@ -3964,7 +4023,7 @@ def _solve_geometry_once(
     second = distinct[1] if len(distinct) > 1 else None
     elapsed = pytime.monotonic() - started
     _LAST_DIAGNOSTICS = {
-        "version": "v5.18-fast-threshold-bounded-chain",
+        "version": "v5.20-card-ambiguity-quality",
         "seam_family_count": len(families),
         "chain_to_chain_family_count": sum(
             family.is_chain_to_chain for family in families
@@ -4393,15 +4452,57 @@ def _solve_geometry_once(
         )
         _LAST_DIAGNOSTICS["fallback_nodes"] = 0
         return None, evaluated_total
+    card_runner_up_eligible = bool(
+        second is not None
+        and (
+            not white_card_mode(texture_context)
+            or (
+                second.iou >= TEXTURE_ACCEPT_IOU
+                and second.overlap_ratio
+                <= TEXTURE_ACCEPT_MAX_OVERLAP_RATIO
+                and second.seam_rms_cm
+                <= TEXTURE_ACCEPT_MAX_SEAM_RMS_CM
+                and second.texture_confidence
+                >= TEXTURE_MIN_CONFIDENCE
+            )
+        )
+    )
+    if (
+        second is not None
+        and white_card_mode(texture_context)
+        and second.score - best.score < UNIQUE_SCORE_MARGIN
+        and second.iou >= MIN_RECTANGLE_IOU
+        and not card_runner_up_eligible
+    ):
+        _LAST_DIAGNOSTICS["ambiguity_runner_up_rejected"] = (
+            "below_texture_geometry_floor"
+        )
     if (
         second is not None
         and second.score - best.score < UNIQUE_SCORE_MARGIN
         and second.iou >= MIN_RECTANGLE_IOU
+        # A weaker card-shaped runner-up must not turn an otherwise verified
+        # card into an ambiguity.  The texture comparison below requires
+        # TEXTURE_ACCEPT_IOU, but the former outer condition admitted any
+        # generic 0.89-IoU rectangle.  Capture 012106 therefore discarded a
+        # 0.962-IoU, low-overlap card because its 0.935-IoU alternative was
+        # numerically close in the mixed score.
+        and card_runner_up_eligible
         and best.iou < 0.97
         and not (
             white_card_mode(texture_context)
             and early_accepted
-            and early_accept_reason == "card_quality_gate"
+            # Every card-specific early gate already verifies rectangle,
+            # overlap, seam, border and contact quality.  The former code
+            # exempted only the score-margin gate, then re-rejected an
+            # equally verified 2x2-grid candidate as ambiguous.  Keep the
+            # artwork-orientation refinement below, but do not send these
+            # protected card candidates to geometry-only DFS.
+            and early_accept_reason in (
+                "two_by_two_grid_quality_gate",
+                "absolute_card_quality_gate",
+                "card_quality_gate",
+            )
         )
     ):
         score_margin = second.score - best.score
@@ -4507,8 +4608,8 @@ def _solve_geometry_once(
 
     if white_card_mode(texture_context):
         # The topology has now passed all rectangle, ambiguity and texture
-        # gates.  Only at this point compare the bounded whole-column
-        # directions.  Its score may choose the orientation inside this one
+        # gates.  Only at this point compare the bounded card artwork
+        # variants.  Its score may choose the orientation inside this one
         # topology, but is deliberately not allowed to reopen topology
         # ranking or turn a protected early accept into a false ambiguity.
         topology_score = best.score

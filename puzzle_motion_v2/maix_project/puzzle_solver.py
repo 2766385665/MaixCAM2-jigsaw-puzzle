@@ -42,6 +42,10 @@ TARGET_MAX_LONG_CM = 12.00
 A4_WIDTH_CM = 21.0
 A4_HEIGHT_CM = 29.7
 A4_HALF_HEIGHT_CM = A4_HEIGHT_CM * 0.5
+# Keep completed pieces well clear of the source/target divider.  This is a
+# work-area constraint, not a solver tolerance, so every valid layout gets
+# the same physical clearance from the A4 centre line.
+TARGET_REGION_CENTERLINE_CLEARANCE_CM = 2.0
 
 _LAST_SEARCH_TIMED_OUT = False
 
@@ -729,7 +733,7 @@ def solve_geometry(
 
 def canonical_target_solution(
     solution: Solution,
-    top_margin_cm: float = 0.6,
+    top_margin_cm: float = TARGET_REGION_CENTERLINE_CLEARANCE_CM,
 ) -> Solution:
     """Rotate and translate a solved rectangle into the lower A4 half."""
     box, _, _, _ = minimum_rectangle(solution.placements)

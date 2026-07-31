@@ -305,7 +305,7 @@ def save_mandatory_t_visual(scattered, solution):
     return output
 
 
-def validate(name, pieces):
+def validate(name, pieces, expected_short=7.0, expected_long=10.0):
     scattered_pieces = scatter(pieces)
     solution, layouts = puzzle_solver_v3.solve_geometry(
         scattered_pieces,
@@ -322,8 +322,8 @@ def validate(name, pieces):
         (solution.width_cm, solution.height_cm)
     )
     if (
-        abs(short_side - 7.0) > 0.08
-        or abs(long_side - 10.0) > 0.08
+        abs(short_side - expected_short) > 0.08
+        or abs(long_side - expected_long) > 0.08
         or solution.rectangularity < 0.98
     ):
         raise AssertionError(
@@ -373,7 +373,256 @@ def validate_reject(name, pieces):
     )
 
 
+def validate_three_family_reserve():
+    pieces = [
+        np.asarray(points, dtype=np.float64)
+        for points in [
+            [
+                [2.676, 4.325],
+                [3.647, 6.173],
+                [5.546, 7.473],
+                [7.124, 5.375],
+            ],
+            [
+                [8.350, 3.450],
+                [8.124, 6.450],
+                [14.301, 6.950],
+            ],
+            [
+                [13.801, 1.853],
+                [14.650, 5.925],
+                [18.851, 7.200],
+                [19.450, 4.972],
+                [15.995, 1.697],
+            ],
+            [
+                [9.175, 7.750],
+                [7.025, 8.925],
+                [7.425, 11.850],
+                [11.675, 11.300],
+            ],
+        ]
+    ]
+    centered = [piece - np.mean(piece, axis=0) for piece in pieces]
+    families, _ = puzzle_solver_v3.generate_seam_families(centered)
+    topologies = puzzle_solver_v3.enumerate_topologies(
+        centered,
+        families,
+    )
+
+    edge = puzzle_solver_v3.EdgeRef
+    target_signature = tuple(
+        sorted(
+            [
+                (edge(1, 2), (edge(0, 0), edge(2, 3))),
+                (edge(2, 0), (edge(3, 3),)),
+                (edge(0, 3), (edge(2, 4), edge(3, 0))),
+            ]
+        )
+    )
+    signatures = [
+        puzzle_solver_v3.topology_signature(topology)
+        for topology in topologies
+    ]
+    if target_signature not in signatures:
+        raise AssertionError(
+            "three-family reserve dropped the capture regression topology"
+        )
+    rank = signatures.index(target_signature)
+    if rank < puzzle_solver_v3.MAX_ENUMERATED_TOPOLOGIES:
+        raise AssertionError(
+            "capture regression no longer exercises the reserve"
+        )
+    print(
+        "PASS three-family-reserve rank={} topologies={}".format(
+            rank,
+            len(topologies),
+        )
+    )
+
+
+def validate_three_family_reserve_jitter():
+    pieces = [
+        np.asarray(points, dtype=np.float64)
+        for points in [
+            [
+                [3.900, 4.325],
+                [7.701, 6.926],
+                [7.449, 4.798],
+                [6.150, 2.901],
+            ],
+            [
+                [10.348, 2.474],
+                [11.352, 5.450],
+                [17.224, 3.700],
+            ],
+            [
+                [16.950, 5.575],
+                [14.675, 6.300],
+                [14.050, 11.150],
+                [15.600, 12.951],
+                [18.550, 9.749],
+            ],
+            [
+                [9.600, 9.725],
+                [5.250, 10.650],
+                [5.499, 13.125],
+                [8.426, 13.900],
+            ],
+        ]
+    ]
+    centered = [piece - np.mean(piece, axis=0) for piece in pieces]
+    families, _ = puzzle_solver_v3.generate_seam_families(centered)
+    topologies = puzzle_solver_v3.enumerate_topologies(
+        centered,
+        families,
+    )
+
+    edge = puzzle_solver_v3.EdgeRef
+    target_signature = tuple(
+        sorted(
+            [
+                (edge(0, 0), (edge(2, 2), edge(3, 1))),
+                (edge(1, 2), (edge(0, 1), edge(2, 1))),
+                (edge(2, 3), (edge(3, 0),)),
+            ]
+        )
+    )
+    signatures = [
+        puzzle_solver_v3.topology_signature(topology)
+        for topology in topologies
+    ]
+    if target_signature not in signatures:
+        raise AssertionError(
+            "jittered capture fell outside the three-family reserve"
+        )
+    rank = signatures.index(target_signature)
+    if rank < puzzle_solver_v3.MAX_ENUMERATED_TOPOLOGIES:
+        raise AssertionError(
+            "jittered capture no longer exercises the reserve tail"
+        )
+    print(
+        "PASS three-family-reserve-jitter rank={} topologies={}".format(
+            rank,
+            len(topologies),
+        )
+    )
+
+
+def validate_two_by_two_chain_model():
+    """Regression for the measured 024248 two-chain-on-two-chain case."""
+    pieces = [
+        np.asarray(points, dtype=np.float64)
+        for points in [
+            [[7.951, 2.550], [4.973, 6.951], [10.074, 6.525]],
+            [[8.372, 1.860], [11.476, 6.726], [16.527, 6.299]],
+            [[4.852, 7.701], [12.101, 12.375], [9.774, 7.348]],
+            [[16.577, 7.222], [11.576, 7.278], [13.650, 11.700]],
+        ]
+    ]
+    centers = [
+        puzzle_solver_v3.legacy.polygon_centroid(piece)
+        for piece in pieces
+    ]
+    centered = [
+        piece - center for piece, center in zip(pieces, centers)
+    ]
+    families, _ = puzzle_solver_v3.generate_seam_families(centered)
+    edge = puzzle_solver_v3.EdgeRef
+
+    def chain_signature(first, second):
+        first = tuple(sorted(first))
+        second = tuple(sorted(second))
+        if second < first:
+            first, second = second, first
+        edges = tuple(sorted(first + second))
+        return (edges[0], edges[1:], first, second)
+
+    target_signature = tuple(
+        sorted(
+            [
+                chain_signature(
+                    (edge(0, 1), edge(1, 1)),
+                    (edge(2, 2), edge(3, 0)),
+                ),
+                chain_signature(
+                    (edge(0, 2), edge(2, 1)),
+                    (edge(1, 0), edge(3, 1)),
+                ),
+            ]
+        )
+    )
+    topologies = puzzle_solver_v3.enumerate_topologies(
+        centered,
+        families,
+        source_pieces=pieces,
+    )
+    signatures = [
+        puzzle_solver_v3.topology_signature(topology)
+        for topology in topologies
+    ]
+    if target_signature not in signatures:
+        raise AssertionError("2x2 target topology was not reserved")
+    topology = topologies[signatures.index(target_signature)]
+    best_iou = 0.0
+    best_seam_rms = float("inf")
+    anchor_id = 2
+    for orders in puzzle_solver_v3.topology_orders(topology):
+        pairs = puzzle_solver_v3.all_point_pairs(
+            centered,
+            topology,
+            orders,
+        )
+        initial = puzzle_solver_v3.initial_poses(
+            centered,
+            pairs,
+            anchor_id,
+        )
+        if initial is None:
+            continue
+        poses, seam_rms = puzzle_solver_v3.optimize_poses(
+            initial,
+            pairs,
+            anchor_id,
+        )
+        placements = puzzle_solver_v3.build_placements(
+            pieces,
+            centered,
+            centers,
+            poses,
+        )
+        iou, _, _, _ = puzzle_solver_v3.layout_metrics(placements)
+        if seam_rms <= 0.30 and iou > best_iou:
+            best_iou = iou
+            best_seam_rms = seam_rms
+    if best_iou < 0.90 or best_seam_rms > 0.30:
+        raise AssertionError(
+            "2x2 cumulative-chain constraints did not reconstruct "
+            "the measured layout"
+        )
+    print(
+        "PASS two-by-two-chain rank={} IoU={:.4f} seam={:.4f}".format(
+            signatures.index(target_signature),
+            best_iou,
+            best_seam_rms,
+        )
+    )
+
+
 def main():
+    validate_two_by_two_chain_model()
+    validate_three_family_reserve()
+    validate_three_family_reserve_jitter()
+    validate(
+        "three-part-long-edge",
+        [
+            rectangle(0, 0, 2, 3),
+            rectangle(2, 0, 5, 3),
+            rectangle(5, 0, 10, 3),
+            rectangle(0, 3, 10, 6),
+        ],
+        expected_short=6.0,
+    )
     validate(
         "mandatory-T",
         [

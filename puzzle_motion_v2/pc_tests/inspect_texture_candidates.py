@@ -142,7 +142,19 @@ def main():
     parser.add_argument("result_json", type=Path)
     parser.add_argument("rectified_jpg", type=Path)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--max-enumerated", type=int)
+    parser.add_argument("--max-coarse", type=int)
+    parser.add_argument("--max-optimize", type=int)
+    parser.add_argument("--max-seconds", type=float, default=14.0)
     args = parser.parse_args()
+
+    if args.max_enumerated is not None:
+        solver.MAX_ENUMERATED_TOPOLOGIES = args.max_enumerated
+    if args.max_coarse is not None:
+        solver.MAX_COARSE_TOPOLOGIES = args.max_coarse
+        solver.FAST_STRICT_TOPOLOGIES = args.max_coarse
+    if args.max_optimize is not None:
+        solver.MAX_TOPOLOGIES_TO_OPTIMIZE = args.max_optimize
 
     payload = json.loads(args.result_json.read_text(encoding="utf-8"))
     pieces = [
@@ -169,6 +181,20 @@ def main():
                 "placements": clone_placements(placements),
                 "topology": topology,
                 "orders": orders,
+                "topology_signature": (
+                    None
+                    if topology is None
+                    else repr(solver.topology_signature(topology))
+                ),
+                "topology_heuristic": (
+                    None
+                    if topology is None
+                    else solver.topology_heuristic(
+                        len(pieces),
+                        pieces,
+                        topology,
+                    )
+                ),
                 "iou": iou,
                 "overlap": overlap,
                 "width": width,
@@ -182,29 +208,43 @@ def main():
     try:
         solution, nodes = solver.solve_geometry(
             pieces,
-            max_seconds=14.0,
+            max_seconds=args.max_seconds,
             texture_context=context,
         )
     finally:
         texture_matcher.score_layout = original_score_layout
 
     for record in records:
-        source = texture_matcher.score_source_topology(
-            context,
-            pieces,
-            record["topology"],
-            record["orders"],
-            {},
-        )
-        record["source_score"] = float(source["score"])
-        record["source_seam"] = float(source.get("seam_score", 0.0))
-        record["source_perimeter"] = float(
-            source.get("perimeter_score", 0.0)
-        )
-        record["current_texture"] = (
-            solver.SOURCE_TEXTURE_BLEND * record["source_score"]
-            + (1.0 - solver.SOURCE_TEXTURE_BLEND) * record["score"]
-        )
+        if record["topology"] is None:
+            record["source_score"] = float(record["score"])
+            record["source_seam"] = float(
+                record.get("seam_score", 0.0)
+            )
+            record["source_perimeter"] = float(
+                record.get("perimeter_score", 0.0)
+            )
+            record["current_texture"] = float(record["score"])
+        else:
+            source = texture_matcher.score_source_topology(
+                context,
+                pieces,
+                record["topology"],
+                record["orders"],
+                {},
+            )
+            record["source_score"] = float(source["score"])
+            record["source_seam"] = float(
+                source.get("seam_score", 0.0)
+            )
+            record["source_perimeter"] = float(
+                source.get("perimeter_score", 0.0)
+            )
+            record["current_texture"] = (
+                solver.SOURCE_TEXTURE_BLEND
+                * record["source_score"]
+                + (1.0 - solver.SOURCE_TEXTURE_BLEND)
+                * record["score"]
+            )
         record["current_total"] = (
             1.0 - record["iou"]
             + 1.7 * record["overlap"]
@@ -246,6 +286,29 @@ def main():
             ).round(6).tolist()
             for item in record["placements"]
         }
+        placement_details = {
+            str(int(item.piece_id) + 1): {
+                "vertices": np.asarray(
+                    item.vertices,
+                    dtype=np.float64,
+                ).round(6).tolist(),
+                "used_edges": sorted(
+                    int(edge_id)
+                    for edge_id in item.used_edges
+                ),
+                "edge_coverage": [
+                    [
+                        [
+                            round(float(start), 6),
+                            round(float(end), 6),
+                        ]
+                        for start, end in intervals
+                    ]
+                    for intervals in item.edge_coverage
+                ],
+            }
+            for item in record["placements"]
+        }
         if index < 20:
             tile = cv2.resize(tile, (440, 340))
             tiles.append(tile)
@@ -255,6 +318,7 @@ def main():
                 if key not in ("placements", "topology", "orders")
         }
         item_metadata["centroids"] = centroids
+        item_metadata["placements"] = placement_details
         item_metadata["individual_image"] = str(individual_path)
         metadata.append(item_metadata)
 
