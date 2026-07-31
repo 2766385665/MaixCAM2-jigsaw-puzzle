@@ -17,7 +17,9 @@ import numpy as np
 
 EDGE_ABS_TOLERANCE_CM = 0.20
 EDGE_REL_TOLERANCE = 0.05
-MIN_SPLIT_SEGMENT_CM = 1.70
+# Questions 1 and 2 permit physical edges down to 1 cm.  Split seams must
+# retain those short legal segments instead of pruning them as noise.
+MIN_SPLIT_SEGMENT_CM = 1.00
 SPLIT_CLOSURE_ABS_TOLERANCE_CM = 0.35
 SPLIT_CLOSURE_REL_TOLERANCE = 0.10
 INTERVAL_EPSILON = 1e-4
@@ -31,10 +33,11 @@ MAX_SEARCH_NODES = 180_000
 MAX_SEARCH_SECONDS = 3.00
 OVERLAP_RASTER_PX_PER_CM = 20.0
 
-TARGET_MIN_SHORT_CM = 4.75
-TARGET_MAX_SHORT_CM = 9.25
-TARGET_MIN_LONG_CM = 8.75
-TARGET_MAX_LONG_CM = 12.25
+# Questions 1 and 2 require a 5--9 cm short side and a 9--12 cm long side.
+TARGET_MIN_SHORT_CM = 5.00
+TARGET_MAX_SHORT_CM = 9.00
+TARGET_MIN_LONG_CM = 9.00
+TARGET_MAX_LONG_CM = 12.00
 
 A4_WIDTH_CM = 21.0
 A4_HEIGHT_CM = 29.7

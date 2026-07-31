@@ -13,6 +13,8 @@ import numpy as np
 from puzzle_solver import (
     Solution,
     apply_transform,
+    overlap_area_raster,
+    polygon_area,
     polygon_centroid,
 )
 
@@ -21,6 +23,15 @@ PROTOCOL_NAME = "maixcam2-puzzle-motion-v1"
 PICKUP_RASTER_PX_PER_CM = 40.0
 MAGNET_RADIUS_CM = 0.50
 PICKUP_MARGIN_CM = 0.20
+# Mechanical compensation belongs to the actuator plan, not the geometric
+# solver.  Keep every solved rotation and polygon unchanged, but move piece
+# centres slightly away from the completed rectangle centre.  This creates a
+# small assembly gap for rail positioning error without weakening topology,
+# card-aspect, border or texture validation.
+ASSEMBLY_CLEARANCE_SCALE = 1.025
+ASSEMBLY_CLEARANCE_MAX_SCALE = 1.080
+ASSEMBLY_CLEARANCE_SCALE_STEP = 0.005
+ASSEMBLY_MAX_OVERLAP_RATIO = 0.001
 
 
 def safe_pickup_point(
@@ -88,6 +99,62 @@ def normalize_angle_degrees(angle: float) -> float:
     return angle
 
 
+def compensated_targets(
+    solution: Solution,
+) -> tuple[dict[int, np.ndarray], dict[int, np.ndarray], float, float]:
+    """Return target polygons/offsets with execution-only clearance.
+
+    The scale applies to the vector from the completed layout centre to each
+    piece centroid.  It therefore changes only translations; piece geometry
+    and solved rotations remain exact.  Increase the scale in small bounded
+    steps when the fitted contours still have a measurable overlap.
+    """
+    placements = list(solution.placements)
+    all_vertices = np.vstack(
+        [
+            np.asarray(item.vertices, dtype=np.float64)
+            for item in placements
+        ]
+    )
+    layout_center = 0.5 * (
+        np.min(all_vertices, axis=0)
+        + np.max(all_vertices, axis=0)
+    )
+    total_area = sum(
+        polygon_area(np.asarray(item.vertices, dtype=np.float64))
+        for item in placements
+    )
+
+    scale = ASSEMBLY_CLEARANCE_SCALE
+    while True:
+        offsets: dict[int, np.ndarray] = {}
+        targets: dict[int, np.ndarray] = {}
+        for item in placements:
+            vertices = np.asarray(item.vertices, dtype=np.float64)
+            centroid = polygon_centroid(vertices)
+            offset = (centroid - layout_center) * (scale - 1.0)
+            offsets[item.piece_id] = offset
+            targets[item.piece_id] = vertices + offset
+
+        overlap_area = 0.0
+        for first_index, first in enumerate(placements):
+            for second in placements[first_index + 1:]:
+                overlap_area += overlap_area_raster(
+                    targets[first.piece_id],
+                    targets[second.piece_id],
+                )
+        overlap_ratio = overlap_area / max(total_area, 1e-9)
+        if (
+            overlap_ratio <= ASSEMBLY_MAX_OVERLAP_RATIO
+            or scale + 1e-9 >= ASSEMBLY_CLEARANCE_MAX_SCALE
+        ):
+            return targets, offsets, scale, overlap_ratio
+        scale = min(
+            ASSEMBLY_CLEARANCE_MAX_SCALE,
+            scale + ASSEMBLY_CLEARANCE_SCALE_STEP,
+        )
+
+
 def build_motion_plan(
     source_pieces_cm: list[np.ndarray],
     solution: Solution,
@@ -97,6 +164,12 @@ def build_motion_plan(
         placement.piece_id: placement
         for placement in solution.placements
     }
+    (
+        target_vertices,
+        target_offsets,
+        clearance_scale,
+        compensated_overlap_ratio,
+    ) = compensated_targets(solution)
     pieces_payload = []
     commands = []
 
@@ -113,16 +186,18 @@ def build_motion_plan(
     for sequence, piece_id in enumerate(order, start=1):
         source = np.asarray(source_pieces_cm[piece_id], dtype=np.float64)
         placement = placements[piece_id]
+        target_offset = target_offsets[piece_id]
         pickup_source, clearance, pickup_safe = safe_pickup_point(source)
         pickup_target = (
             placement.rotation @ pickup_source + placement.translation
+            + target_offset
         )
         source_centroid = polygon_centroid(source)
         target_centroid = apply_transform(
             source_centroid.reshape(1, 2),
             placement.rotation,
             placement.translation,
-        )[0]
+        )[0] + target_offset
         angle_deg = normalize_angle_degrees(
             math.degrees(
                 math.atan2(
@@ -135,6 +210,9 @@ def build_motion_plan(
             "id": piece_id + 1,
             "source_vertices_cm": np.round(source, 4).tolist(),
             "target_vertices_cm": np.round(
+                target_vertices[piece_id], 4
+            ).tolist(),
+            "ideal_target_vertices_cm": np.round(
                 placement.vertices, 4
             ).tolist(),
             "source_centroid_cm": np.round(
@@ -142,6 +220,9 @@ def build_motion_plan(
             ).tolist(),
             "target_centroid_cm": np.round(
                 target_centroid, 4
+            ).tolist(),
+            "target_clearance_offset_cm": np.round(
+                target_offset, 4
             ).tolist(),
             "pickup_source_cm": np.round(
                 pickup_source, 4
@@ -206,6 +287,19 @@ def build_motion_plan(
             "target_width_cm": round(solution.width_cm, 4),
             "target_height_cm": round(solution.height_cm, 4),
             "search_nodes": solution.search_nodes,
+            "motion_clearance": {
+                "mode": "centroid_radial_expansion",
+                "scale": round(clearance_scale, 4),
+                "max_scale": ASSEMBLY_CLEARANCE_MAX_SCALE,
+                "overlap_ratio": round(
+                    compensated_overlap_ratio, 6
+                ),
+                "overlap_verified": bool(
+                    compensated_overlap_ratio
+                    <= ASSEMBLY_MAX_OVERLAP_RATIO
+                ),
+                "rotations_unchanged": True,
+            },
         },
         "pieces": pieces_payload,
         "commands": commands,

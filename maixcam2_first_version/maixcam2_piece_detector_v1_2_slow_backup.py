@@ -73,8 +73,8 @@ MAX_PIECES = 4
 # Polygon fitting. Raise EPSILON_RATIO if a straight edge is split by noise;
 # lower it if a real corner is being removed.
 EPSILON_RATIO = 0.012
-MIN_LEGAL_EDGE_CM = 2.0
-EDGE_WARNING_MARGIN_CM = 0.25
+MIN_LEGAL_EDGE_CM = 1.0
+EDGE_WARNING_MARGIN_CM = 0.15
 
 SAVE_DIR = "/root/puzzle_piece_debug"
 
@@ -301,7 +301,7 @@ def remove_impossible_short_edges(
             break
 
         # A short fitted side is impossible because the task guarantees every
-        # physical edge is at least 2 cm. It normally comes from a cardboard
+        # physical edge is at least 1 cm. It normally comes from a cardboard
         # burr or the thin side-wall shadow. Try removing either endpoint and
         # retain the candidate that best follows the original contour.
         first = np.delete(vertices, short_id, axis=0)

@@ -57,8 +57,18 @@ class TextureContext:
     gray: np.ndarray
     px_per_cm: float
     white_card_confidence: float = 0.0
+    texture_richness: float = 0.0
+    ink_fraction: float = 0.0
+    dark_ink_fraction: float = 0.0
+    chromatic_fraction: float = 0.0
     piece_profile_ready: bool = False
     edge_border_costs: dict | None = None
+
+
+# White paper alone is shared by Questions 1/2 and the playing-card task.
+# Require visible printed material before enabling card-specific constraints.
+MIN_CARD_DARK_INK_FRACTION = 0.010
+MIN_CARD_CHROMATIC_FRACTION = 0.003
 
 
 def build_context(
@@ -164,14 +174,70 @@ def prepare_context_for_pieces(
         & (np.abs(pixels_i16[:, 2] - 128) < 24)
     )
     white_fraction = float(np.mean(white))
-    # Existing brown-card captures are below 1%, while the J/Q/K captures
-    # are about 60%.  The wide ramp avoids a brittle binary mode switch.
-    context.white_card_confidence = float(
+    # White material identifies a playing card, but it does not tell us
+    # whether the expensive artwork-assisted topology search is useful.
+    # A sparse number card can still be more than 60% white and previously
+    # entered the J/Q/K path.  Measure coloured/printed coverage separately:
+    # black pips contribute weakly, while the red/yellow/blue face-card art
+    # contributes strongly.
+    ink = (
+        (pixels_i16[:, 0] < 185)
+        | (np.abs(pixels_i16[:, 1] - 128) >= 18)
+        | (np.abs(pixels_i16[:, 2] - 128) >= 24)
+    )
+    chromatic = (
+        (np.abs(pixels_i16[:, 1] - 128) >= 22)
+        | (np.abs(pixels_i16[:, 2] - 128) >= 28)
+    )
+    # Absolute brightness is unsuitable for ``ink`` because exposure can make
+    # an entire white puzzle look dark.  Real card printing still contains a
+    # measurable population of genuinely dark pixels.
+    dark_ink = pixels_i16[:, 0] < 120
+    context.ink_fraction = float(np.mean(ink))
+    context.dark_ink_fraction = float(np.mean(dark_ink))
+    context.chromatic_fraction = float(np.mean(chromatic))
+    richness_signal = (
+        0.35 * context.dark_ink_fraction
+        + 0.65 * context.chromatic_fraction
+    )
+    context.texture_richness = float(
         np.clip(
-            (white_fraction - 0.20) / 0.30,
+            (richness_signal - 0.12) / 0.18,
             0.0,
             1.0,
         )
+    )
+    material_confidence = float(
+        np.clip((white_fraction - 0.20) / 0.30, 0.0, 1.0)
+    )
+    printed_confidence = float(
+        max(
+            np.clip(
+                (
+                    context.dark_ink_fraction
+                    - MIN_CARD_DARK_INK_FRACTION
+                )
+                / 0.05,
+                0.0,
+                1.0,
+            ),
+            np.clip(
+                (
+                    context.chromatic_fraction
+                    - MIN_CARD_CHROMATIC_FRACTION
+                )
+                / 0.04,
+                0.0,
+                1.0,
+            ),
+        )
+    )
+    # A blank white geometry puzzle must not inherit the playing-card aspect
+    # and perimeter gates.  Real face cards can have enough artwork that the
+    # white-material estimate is low, so rich artwork is an alternate signal.
+    context.white_card_confidence = max(
+        min(material_confidence, printed_confidence),
+        context.texture_richness,
     )
     context.edge_border_costs = {}
     if context.white_card_confidence <= 0.0:
@@ -678,6 +744,12 @@ def _score_source_family(
     order,
 ) -> tuple[float, float, float, int]:
     """Return weighted error, information, length and segment count."""
+    # A 2x2 seam has cumulative chains on both sides. Source-pose texture
+    # sampling cannot compare those chains until their independently cut
+    # junctions are aligned. The final-layout scorer measures the resulting
+    # physical contacts, so leave this preliminary rank neutral.
+    if getattr(family, "is_chain_to_chain", False):
+        return 0.0, 0.0, 0.0, 0
     weighted_error = 0.0
     information_weight = 0.0
     total_length = 0.0
@@ -805,15 +877,13 @@ def score_source_topology(
     ):
         internal_edges = set()
         for family in topology:
-            internal_edges.add(
-                (
-                    family.long_edge.piece_id,
-                    family.long_edge.edge_id,
-                )
-            )
             internal_edges.update(
                 (edge.piece_id, edge.edge_id)
-                for edge in family.short_edges
+                for edge in getattr(
+                    family,
+                    "edges",
+                    (family.long_edge,) + family.short_edges,
+                )
             )
         perimeter_error = 0.0
         perimeter_length = 0.0
@@ -853,7 +923,15 @@ def _score_half_turn_symmetry(
     context: TextureContext,
     placements: list,
 ) -> tuple[float, float]:
-    """Compare a low-resolution assembled card with its 180-degree turn."""
+    """Compare the assembled printed artwork with its 180-degree turn.
+
+    Face-card artwork is approximately invariant under a complete 180-degree
+    turn, but the white stock around it contains little directional
+    information.  A plain mean over the whole card lets that large white area
+    hide an upside-down half-card.  Weight the comparison by printed ink so a
+    coloured figure opposite blank stock is treated as the decisive error it
+    is visually.
+    """
     points = np.concatenate(
         [placement.vertices for placement in placements],
         axis=0,
@@ -929,8 +1007,51 @@ def _score_half_turn_symmetry(
         ),
         axis=2,
     )
+    ink = np.maximum.reduce(
+        (
+            np.clip((210.0 - lab_grid[:, :, 0]) / 90.0, 0.0, 1.0),
+            np.clip(
+                np.abs(lab_grid[:, :, 1] - 128.0) / 45.0,
+                0.0,
+                1.0,
+            ),
+            np.clip(
+                np.abs(lab_grid[:, :, 2] - 128.0) / 45.0,
+                0.0,
+                1.0,
+            ),
+        )
+    )
+    reverse_ink = ink[::-1, ::-1]
+    # Retain a small base weight so white border alignment still contributes,
+    # while printed pixels dominate the direction decision.
+    weights = 0.08 + 0.92 * np.maximum(ink, reverse_ink)
+    valid_weights = weights[valid_pairs]
+    first_ink = ink[valid_pairs].astype(np.float64)
+    second_ink = reverse_ink[valid_pairs].astype(np.float64)
+    first_ink -= float(np.mean(first_ink))
+    second_ink -= float(np.mean(second_ink))
+    correlation_denominator = float(
+        np.linalg.norm(first_ink) * np.linalg.norm(second_ink)
+    )
+    if correlation_denominator > 1e-8:
+        ink_correlation = float(
+            np.clip(
+                np.dot(first_ink, second_ink)
+                / correlation_denominator,
+                -1.0,
+                1.0,
+            )
+        )
+        correlation_error = 0.5 * (1.0 - ink_correlation)
+    else:
+        correlation_error = 1.0
+    colour_error = float(
+        np.sum(delta[valid_pairs] * valid_weights)
+        / max(float(np.sum(valid_weights)), 1e-8)
+    )
     return (
-        float(np.mean(delta[valid_pairs])),
+        float(0.35 * colour_error + 0.65 * correlation_error),
         float(pair_count / (width * height)),
     )
 
@@ -938,7 +1059,7 @@ def _score_half_turn_symmetry(
 def _score_layout_perimeter(
     context: TextureContext,
     placements: list,
-) -> tuple[float, float, int]:
+) -> tuple[float, float, int, float, float, list[float]]:
     """Score only source edges exposed on the final card rectangle.
 
     Topology edges are insufficient here: a spanning-tree topology can omit
@@ -947,7 +1068,7 @@ def _score_layout_perimeter(
     rectangle makes the test depend on the actual final layout.
     """
     if not context.edge_border_costs:
-        return 1.0, 0.0, 0
+        return 1.0, 0.0, 0, 1.0, 1.0, []
     points = np.concatenate(
         [np.asarray(item.vertices, dtype=np.float64) for item in placements],
         axis=0,
@@ -959,12 +1080,15 @@ def _score_layout_perimeter(
     u_length = float(np.linalg.norm(u_vector))
     v_length = float(np.linalg.norm(v_vector))
     if min(u_length, v_length) < 1e-8:
-        return 1.0, 0.0, 0
+        return 1.0, 0.0, 0, 1.0, 1.0, []
     u_axis = u_vector / u_length
     v_axis = v_vector / v_length
     weighted_error = 0.0
     exposed_length = 0.0
     exposed_edges = 0
+    side_errors = [0.0, 0.0, 0.0, 0.0]
+    side_lengths = [0.0, 0.0, 0.0, 0.0]
+    worst_edge_score = 0.0
     for placement in placements:
         polygon = np.asarray(placement.vertices, dtype=np.float64)
         for edge_id in range(len(polygon)):
@@ -982,23 +1106,23 @@ def _score_layout_perimeter(
                     np.dot(second - origin, v_axis),
                 ]
             )
-            on_boundary = (
-                max(abs(first_local[0]), abs(second_local[0]))
-                <= MAX_LAYOUT_PERIMETER_DISTANCE_CM
-                or max(
+            side_distances = (
+                max(abs(first_local[0]), abs(second_local[0])),
+                max(
                     abs(first_local[0] - u_length),
                     abs(second_local[0] - u_length),
-                )
-                <= MAX_LAYOUT_PERIMETER_DISTANCE_CM
-                or max(abs(first_local[1]), abs(second_local[1]))
-                <= MAX_LAYOUT_PERIMETER_DISTANCE_CM
-                or max(
+                ),
+                max(abs(first_local[1]), abs(second_local[1])),
+                max(
                     abs(first_local[1] - v_length),
                     abs(second_local[1] - v_length),
-                )
-                <= MAX_LAYOUT_PERIMETER_DISTANCE_CM
+                ),
             )
-            if not on_boundary:
+            side_id = int(np.argmin(side_distances))
+            if (
+                side_distances[side_id]
+                > MAX_LAYOUT_PERIMETER_DISTANCE_CM
+            ):
                 continue
             result = context.edge_border_costs.get(
                 (int(placement.piece_id), edge_id)
@@ -1009,6 +1133,9 @@ def _score_layout_perimeter(
             weighted_error += edge_error * edge_length
             exposed_length += edge_length
             exposed_edges += 1
+            side_errors[side_id] += edge_error * edge_length
+            side_lengths[side_id] += edge_length
+            worst_edge_score = max(worst_edge_score, edge_error)
     expected_length = 2.0 * (u_length + v_length)
     confidence = float(
         np.clip(
@@ -1018,11 +1145,22 @@ def _score_layout_perimeter(
         )
     )
     if exposed_length <= 1e-8:
-        return 1.0, 0.0, exposed_edges
+        return 1.0, 0.0, exposed_edges, 1.0, 1.0, []
+    side_scores = [
+        float(error / length)
+        for error, length in zip(side_errors, side_lengths)
+        if length > 1e-8
+    ]
+    worst_side_score = (
+        max(side_scores) if side_scores else 1.0
+    )
     return (
         float(weighted_error / exposed_length),
         confidence,
         exposed_edges,
+        float(worst_side_score),
+        float(worst_edge_score),
+        side_scores,
     )
 
 
@@ -1098,11 +1236,17 @@ def score_layout(
     perimeter_score = combined_score
     perimeter_confidence = 0.0
     perimeter_edges = 0
+    perimeter_worst_side_score = perimeter_score
+    perimeter_worst_edge_score = perimeter_score
+    perimeter_side_scores = []
     if card_confidence > 0.0:
         (
             perimeter_score,
             perimeter_confidence,
             perimeter_edges,
+            perimeter_worst_side_score,
+            perimeter_worst_edge_score,
+            perimeter_side_scores,
         ) = _score_layout_perimeter(context, placements)
     perimeter_blend = (
         CARD_LAYOUT_PERIMETER_BLEND
@@ -1129,5 +1273,12 @@ def score_layout(
         "perimeter_score": perimeter_score,
         "perimeter_confidence": perimeter_confidence,
         "perimeter_edges": perimeter_edges,
+        "perimeter_worst_side_score": (
+            perimeter_worst_side_score
+        ),
+        "perimeter_worst_edge_score": (
+            perimeter_worst_edge_score
+        ),
+        "perimeter_side_scores": perimeter_side_scores,
         "contact_segments": len(contacts),
     }
