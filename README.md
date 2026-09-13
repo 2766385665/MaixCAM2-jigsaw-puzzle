@@ -1,57 +1,183 @@
-# MaixCAM2 拼图装置（易读版）
+# MaixCAM2 拼图装置
 
-这是一个“相机识别碎片 -> 任务求解 -> 规划滑轨搬运 -> UART0 控制 STM32”的端到端项目。当前默认任务是矩形拼图；任务流程已通过 `TaskAdapter` 解耦，七巧板等新任务可替换自己的识别后处理、求解器和运动策略。当前提交是代码整理后的“易读版”；上一提交 `24c7d5f` 保留为可运行基线。
+这是一个用 MaixCAM2 摄像头识别碎片，再计算拼接位置，最后通过 UART0 控制 STM32 滑轨和电磁铁搬运碎片的项目。
 
-## 快速定位
+当前代码默认完成的是“四块碎片拼成长方形”。代码已经预留任务接口，后续可以更换为七巧板等完全不同的任务。
 
-- MaixCAM 入口：`puzzle_motion_v2/maix_project/main.py`
-- 运行时流程：`puzzle_motion_v2/maix_project/runtime_pipeline.py`
-- 可替换任务接口：`puzzle_motion_v2/maix_project/task_pipeline.py`
-- 视觉识别：`puzzle_motion_v2/maix_project/piece_vision.py`
-- V3 几何求解：`puzzle_motion_v2/maix_project/puzzle_solver_v3.py`
-- 运动协议：`puzzle_motion_v2/maix_project/motion_protocol.py`
-- 代码结构说明：[`代码结构解析.md`](代码结构解析.md)
-- 提交历史：[`提交历史记录.md`](提交历史记录.md)
+## 先看哪一个文件
 
-## 运行
+如果你是第一次接手，请按这个顺序阅读：
 
-### MaixCAM2
+1. 本 README：确认项目用途、下载哪些文件、如何运行。
+2. [代码结构解析.md](代码结构解析.md)：查看每个文件的作用，以及以后应该改哪个文件。
+3. [提交历史记录.md](提交历史记录.md)：了解以前每次提交做了什么。
+4. `puzzle_motion_v2/maix_project/main.py`：从设备入口开始读实际运行流程。
 
-在 MaixVision 中打开 `puzzle_motion_v2/maix_project`，入口选择 `main.py`。相机需能看到完整 A4 工作面；运行前确认 UART0 已连接 STM32，且 `pixel_to_pulse_calibration.py` 中的标定范围与实际滑轨一致。触摸 `START/DETECT` 后执行一次识别和搬运，`SAVE` 保存调试会话。
+代码结构解析文件是详细说明，README 只负责帮助你快速上手，避免在 GitHub 下载后面对一堆文件不知道从哪里开始。
 
-### PC 验证
+## MaixCAM 端必须放哪些文件
 
-PC 验证依赖 Python、NumPy、OpenCV、Shapely 和 PyQt5：
+在 MaixVision 中打开并下载整个目录：
+
+`puzzle_motion_v2/maix_project/`
+
+当前主程序实际运行需要下面这些文件：
+
+```text
+app.yaml                         MaixVision 打包清单
+app.png                          应用图标
+main.py                          程序入口、相机、触摸屏、显示和 UART
+runtime_pipeline.py              公共流程：坐标转换、绘图、保存
+task_pipeline.py                 任务接口和当前矩形拼图任务
+piece_vision.py                  A4 矫正和碎片识别
+camera_calibration.py            镜头/相机标定参数
+pixel_to_pulse_calibration.py    屏幕像素到滑轨脉冲的标定
+puzzle_solver_v3.py              当前矩形拼图求解器
+puzzle_solver.py                 V3 失败时使用的旧版回退求解器
+texture_matcher.py               图案/颜色连续性判断
+motion_protocol.py                吸取点、净空检查和 STM32 指令
+```
+
+最简单可靠的做法是直接下载整个 `maix_project` 文件夹，不要手动挑选后漏掉依赖文件。
+
+### 也可以放进 MaixCAM，但不是主流程必须的文件
+
+```text
+uart0_test.py                    单独测试 UART0，不运行拼图主程序
+jiuzheng.py                     单独测试曝光和相机画面
+make_demo_plan.py                生成 PC 仿真用的演示 JSON
+```
+
+这些文件在 `app.yaml` 中已经列出，随目录一起下载不会影响主程序；如果设备空间很紧，也可以不放，但调试硬件时建议保留。
+
+### 不需要下载到 MaixCAM 的文件
+
+```text
+puzzle_motion_v2/pc_tests/       PC 回归测试脚本
+puzzle_motion_v2/pc_simulator/   PC 滑轨动画仿真器
+puzzle_solver_validation.py      早期 PC 几何验证
+puzzle_visual_demo.py            PC 动画演示
+requirements-puzzle.txt          PC 端依赖清单
+*.md                             说明文档，不参与程序运行
+*.jpg / *.png / *.json / *.mp4   样例、测试结果和生成文件
+maixcam2_first_version/          第一版识别程序和备份
+maix_project/sg/                 独立标定实验程序
+dist/                            以前生成的安装包
+*.zip / *.docx                   压缩备份和设计报告
+```
+
+这些文件对 PC 测试、查历史和写文档有用，但不是 MaixCAM 主程序的运行依赖。GitHub 克隆后不要把所有实验图片、视频和压缩包都复制进设备。
+
+## MaixCAM 如何运行
+
+1. 相机固定在 A4 工作面上方，画面能看到完整 A4 四角。
+2. 在 MaixVision 打开 `puzzle_motion_v2/maix_project`，入口选择 `main.py`。
+3. 确认 UART0 已连接 STM32，滑轨和电磁铁处于安全状态。
+4. 确认 `pixel_to_pulse_calibration.py` 里的标定数据对应当前相机和滑轨。
+5. 触摸 START/DETECT，程序会执行：拍照 -> A4 矫正 -> 识别碎片 -> 求解 -> 生成运动计划 -> UART 发送。
+6. 触摸 SAVE 可保存本次原图、矫正图、二值图、标注图、运动 JSON 和求解诊断。
+
+设备端默认保存到 `/root/puzzle_motion_output`。一次完整结果通常包括：
+
+```text
+*_raw.jpg / *_rectified.jpg / *_binary.png / *_annotated.jpg
+*_motion.json                 运动计划
+*_stm32.txt                   实际发送帧的文字记录
+*_solver_diagnostics.json     求解器诊断信息
+```
+
+## PC 端验证和仿真
+
+PC 仿真器使用的就是项目中的同一套几何、纹理和运动计划算法，再把生成的 JSON 画成电脑动画。因此它可以验证：
+
+- 求解器能否找到合理布局；
+- 吸取点和目标点是否在范围内；
+- 碎片移动、旋转和指令顺序是否正确；
+- 运动计划 JSON 和 STM32 帧格式是否基本正确。
+
+但 PC 仿真不能证明真实设备一定安全或准确。它没有模拟电机回差、加减速、滑动、吸盘偏心、残磁、相机噪声和 UART 反馈。真实硬件仍必须做限位、低速单块和多块测试。
+
+安装 PC 依赖并运行：
 
 ```powershell
 python -m pip install -r requirements-puzzle.txt
 python puzzle_solver_validation.py --trials 1000 --negative-trials 500
-python puzzle_visual_demo.py --headless
+python puzzle_motion_v2/pc_tests/validate_global_solver_v3_synthetic.py
+python puzzle_motion_v2/pc_tests/validate_motion_clearance.py
+python puzzle_motion_v2/pc_tests/validate_pixel_to_pulse_calibration.py
 ```
 
-更多设备端和仿真操作见 `puzzle_motion_v2/README_拼图求解与滑轨仿真.md`。MaixCAM 固件环境使用系统自带 `maix`，不要在 PC 环境安装同名替代包。
+需要动画时运行根目录的 `启动拼图可视化演示.cmd`，需要滑轨仿真时运行 `puzzle_motion_v2/pc_simulator/启动滑轨搬运仿真.cmd`。
 
-## 更换任务
+详细的测试文件说明见 [代码结构解析.md](代码结构解析.md) 的“PC 测试和仿真文件”部分。
 
-`main.py` 中的 `ACTIVE_TASK` 是任务插槽，默认指向 `RectanglePuzzleTask`。
-接手者实现 `TaskAdapter`（见 `代码结构解析.md`）后，将该变量替换为七巧板适配器，
-即可保留相机、触摸屏、显示和 UART 外壳。新任务可以使用完全不同的碎片数量、
-目标形状、求解器和运动规划，但应返回统一的运动计划字典供 UI 和保存模块使用。
+## 更换成七巧板等新任务
 
-## 输出文件
+不要直接修改 `puzzle_solver_v3.py` 里的矩形规则。推荐做法：
 
-设备端默认写入 `/root/puzzle_motion_output`：原始/矫正/二值/标注图，运动计划 `*_motion.json`，STM32 帧 `*_stm32.txt`，以及可复现求解过程的 `*_solver_diagnostics.json`。
+1. 新建 `puzzle_motion_v2/maix_project/tangram_task.py`。
+2. 实现 `task_pipeline.py` 中 `TaskAdapter` 要求的任务函数。
+3. 在 `main.py` 中把 `ACTIVE_TASK = RectanglePuzzleTask()` 换成 `TangramTask()`。
+4. 把 `tangram_task.py` 加入 `app.yaml` 的 `files` 列表。
+5. 先在 PC 上验证，再下载到 MaixCAM。
 
-## 当前不足与风险
+七巧板可以有不同的碎片数量、目标形状和求解方法，但仍应输出统一的 `plan["pieces"]`、`plan["commands"]` 和 `plan["stm32_frames"]`，这样显示、发送和保存功能可以继续复用。
 
-- V3 求解仍是启发式搜索；相同图案或多解扑克牌布局可能需要纹理评分和人工复核，23 秒超时后不保证有解。
-- 视觉阈值、A4 角点和稀疏几何标定依赖现场光照、相机安装姿态；换设备后必须重新验证。
-- 像素到脉冲的标定目前是固定参数，未自动学习温漂、机械回差、加减速和负载变化。
-- 旋转轴与电磁铁中心的偏心补偿尚未闭环；吸盘磨损、碎片翘曲、滑动和残磁也未在软件中建模。
-- UART 发送前有边界和净空检查，但没有真实 STM32 的反馈确认、急停回执或断电恢复流程。
-- PC 仿真只验证几何轨迹和协议时序，不等价于真实电机、电磁铁和相机的硬件验收。
-- 当前模块化主要覆盖运行时编排；`piece_vision.py`、`puzzle_solver_v3.py` 和 `motion_protocol.py` 仍然较大，后续应以回归测试为先逐步拆分。
+具体函数和修改位置请直接看 [代码结构解析.md](代码结构解析.md)，不要靠猜文件名。
 
-## 交接建议
+## 我的后续修改建议
 
-先运行 PC 验证，再在无负载状态测试 UART 和滑轨限位，最后使用已保存的真实采集样例做 MaixCAM 回归。任何坐标系、标定参数或协议字段变更，都应在提交说明中记录输入样例、验证命令和硬件结果。
+下面四项是接手后最值得优先处理的工作，按重要性排序：
+
+### 1. 重新解决摄像头畸变
+
+当前代码使用 `piece_vision.py` 中的自定义稀疏畸变修正，主要是当时时间不足的临时方案，效果和稳定性都不够理想。畸变会直接影响 A4 角点、碎片边长、接缝位置和最后的吸取坐标，因此这是最重要的改进项。
+
+建议：
+
+- 优先评估 MaixCAM 内置的镜头矫正函数，尽量使用成熟的整幅图矫正；
+- 解决整幅图矫正带来的内存分配问题，可以考虑降低处理分辨率、复用缓冲区、分阶段处理或只在 START 时矫正一次；
+- 使用棋盘格/标定板重新采集相机参数，记录矫正前后的直线和角点误差；
+- 不要只看画面是否“看起来变直”，要用 A4 四角和已知长度做数值验证；
+- 重新矫正后要同步检查 `piece_vision.py`、纹理采样、屏幕映射和脉冲标定。
+
+### 2. 重新标定屏幕像素与实际脉冲的关系
+
+当前 `pixel_to_pulse_calibration.py` 使用固定参数。更换相机位置、屏幕缩放、滑轨安装或机械结构后，旧参数都可能失效。
+
+建议重新采集覆盖四边和中心的标定点，分别记录屏幕坐标、实际脉冲和重复测量误差；再重新拟合映射，并验证边界点、角点和吸取点。标定结果要写入版本记录，不能只在本地临时修改数字。
+
+### 3. 重新选择背景纸板并调整识别参数
+
+背景纸板应该和待识别物块在亮度、颜色或纹理上有明显区别，同时避免反光、阴影和印刷图案干扰。
+
+建议先固定相机曝光和纸板，再重新调整 `piece_vision.py` 中的阈值、背景颜色判断、碎片面积范围和边缘参数。每次只改一组参数，并用同一批真实照片做前后对比，避免“换纸板和换算法”同时发生导致无法判断原因。
+
+### 4. 根据被吸起碎片大小重新设计安全预留
+
+当前吸取安全主要依赖统一的磁铁半径和固定边缘余量。碎片大小、形状、厚度和磁铁接触面不同，安全余量不应该完全一样。
+
+建议按碎片实际尺寸动态计算：磁铁半径 + 边缘预留 + 定位误差 + 旋转/搬运误差。对于太小、太尖或无法满足余量的碎片，应明确标记为不可自动搬运，而不是勉强生成指令。必要时可以完全重写 `motion_protocol.safe_pickup_point()` 和相关净空检查，并增加不同尺寸碎片的专门测试。
+
+## 建议的改进顺序
+
+```text
+相机畸变重新标定
+    -> 重新标定像素/脉冲
+    -> 更换并固定背景纸板
+    -> 重新调整视觉参数
+    -> 按碎片大小重写吸取安全策略
+    -> PC 同算法验证
+    -> 无负载和低速实机验证
+```
+
+每项改动都建议单独提交，并在提交说明中写清：改了哪些文件、使用了哪组样例、PC 测试结果和真实硬件结果。
+
+## 版本提示
+
+- `24c7d5f`：上一版可运行检查点。
+- `210fab7`：易读版重构。
+- `8197ac1`：任务适配器模块化。
+- `796de64`：按文件重写交接结构说明。
+
+当前 README 和结构文档属于交接资料；实验图片、视频、压缩包和构建输出不要当成主程序源代码。
