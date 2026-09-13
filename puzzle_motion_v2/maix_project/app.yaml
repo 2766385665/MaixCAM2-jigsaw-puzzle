@@ -8,6 +8,8 @@ files:
   - camera_calibration.py
   - jiuzheng.py
   - main.py
+  - runtime_pipeline.py
+  - task_pipeline.py
   - make_demo_plan.py
   - motion_protocol.py
   - piece_vision.py
