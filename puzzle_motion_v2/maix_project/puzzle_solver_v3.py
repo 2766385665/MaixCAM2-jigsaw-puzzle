@@ -63,6 +63,13 @@ MAX_COARSE_TOPOLOGIES = 80
 MAX_TOPOLOGIES_TO_OPTIMIZE = 16
 MAX_CARD_GENERIC_SEARCH_TOPOLOGIES = 240
 MAX_SPARSE_CARD_CHAIN_SEARCH_TOPOLOGIES = 64
+# A long physical cut can be measured differently on opposite sides after
+# sparse lens correction (capture 172040: 6.216 cm versus 5.636 cm).  Such a
+# pair still carries far more structural information than the many short,
+# similarly sized card edges, so give topologies containing it one bounded
+# card-only ranking pass before the generic pool.
+CARD_LONG_DIRECT_MIN_LENGTH_CM = 5.0
+MAX_CARD_LONG_DIRECT_TOPOLOGIES = 192
 FAST_STRICT_TOPOLOGIES = 120
 FAST_COARSE_TOPOLOGIES = 32
 
@@ -171,6 +178,13 @@ EARLY_ACCEPT_IOU = 0.94
 EARLY_ACCEPT_MAX_OVERLAP_RATIO = 0.015
 EARLY_ACCEPT_MAX_SEAM_RMS_CM = 0.20
 EARLY_ACCEPT_SCORE_MARGIN = 0.06
+# A clean Q1/Q2 rectangle is executable even when a batch contains only one
+# distinct topology, so a runner-up margin cannot be computed. Keep this gate
+# deliberately tighter than the normal final geometry limits.
+Q12_ABSOLUTE_EARLY_IOU = 0.95
+Q12_ABSOLUTE_EARLY_MAX_OVERLAP_RATIO = 0.005
+Q12_ABSOLUTE_EARLY_MAX_SEAM_RMS_CM = 0.15
+Q12_ABSOLUTE_EARLY_MIN_CONTACT_SEGMENTS = 3
 # A patterned white card can be accepted earlier than a geometry-only puzzle,
 # but only when several independent checks agree.  These thresholds are
 # intentionally stricter than the final acceptance gate so an early exit can
@@ -183,6 +197,8 @@ CARD_EARLY_ACCEPT_MIN_PERIMETER_CONFIDENCE = 0.90
 CARD_EARLY_ACCEPT_MIN_TEXTURE_MARGIN = 0.05
 CARD_EARLY_ACCEPT_MIN_SCORE_MARGIN = 0.005
 CARD_EARLY_ACCEPT_MIN_CONTACT_SEGMENTS = 4
+CARD_SINGLE_HALF_TURN_MIN_POLYGON_IOU = 0.88
+CARD_SINGLE_HALF_TURN_MAX_VARIANTS = 8
 
 # These broad limits are used only by the playing-card mode, whose standard
 # card dimensions differ from the Question 1/2 target rectangle.
@@ -210,6 +226,21 @@ CHAIN_CARD_MAX_SEAM_RMS_CM = 0.50
 CHAIN_CARD_MIN_PERIMETER_CONFIDENCE = 0.55
 WHITE_CARD_MODE_CONFIDENCE = 0.50
 RICH_CARD_MODE_CONFIDENCE = 0.45
+# Sparse number-card artwork can fall below the normal card classifier while
+# still carrying substantially more ink than the blank white geometry task.
+# This gate is used only after an excellent card-aspect rectangle has failed
+# the Question 1/2 dimensions and passed the normal card border validation.
+SPARSE_CARD_RECOVERY_MIN_CONFIDENCE = 0.15
+SPARSE_CARD_RECOVERY_MIN_INK_FRACTION = 0.06
+SPARSE_CARD_RECOVERY_MIN_VERY_DARK_FRACTION = 0.001
+SPARSE_CARD_RECOVERY_MIN_VIVID_PRINT_FRACTION = 0.001
+SPARSE_CARD_RECOVERY_MIN_WHITE_FRACTION = 0.45
+SPARSE_CARD_RECOVERY_MIN_SHORT_CM = 4.80
+SPARSE_CARD_RECOVERY_MAX_SHORT_CM = 7.20
+SPARSE_CARD_RECOVERY_MIN_LONG_CM = 7.50
+SPARSE_CARD_RECOVERY_MAX_LONG_CM = 10.50
+SPARSE_CARD_RECOVERY_MIN_ASPECT_RATIO = 1.40
+SPARSE_CARD_RECOVERY_MAX_ASPECT_RATIO = 1.68
 MAX_CARD_SOURCE_POSE_RANK_INPUT = 192
 
 # Questions 1 and 2 use the specified rectangle dimensions directly.  This
@@ -2208,12 +2239,13 @@ def card_layout_variants(
 
     * exchange the two columns by translation;
     * exchange the two vertical slots inside either column by translation;
-    * turn either complete column, or both columns, by 180 degrees.
+    * turn either complete column by 180 degrees;
+    * turn a single near-centrally-symmetric fragment by 180 degrees.
 
-    This is deliberately not a per-piece special case.  A single arbitrary
-    polygon generally cannot turn in place without breaking the rectangle;
-    a complete two-piece rectangular column can.  Every generated layout is
-    checked again for dimensions, IoU and overlap before texture scoring.
+    An arbitrary polygon still cannot turn in place without breaking the
+    rectangle. Single-piece variants therefore require high polygon overlap
+    after the turn and remain bounded. Every generated layout is checked
+    again for dimensions, IoU and overlap before texture scoring.
     """
     variants: list[tuple[str, list[Placement]]] = []
     if not white_card_mode(texture_context) or len(placements) != 4:
@@ -2416,6 +2448,24 @@ def card_layout_variants(
                 )
         return result
 
+    def single_half_turn_similarity(item):
+        vertices = np.asarray(item.vertices, dtype=np.float64)
+        center = np.asarray(
+            cv2.minAreaRect(vertices.astype(np.float32))[0],
+            dtype=np.float64,
+        )
+        turned = 2.0 * center - vertices
+        area = abs(float(cv2.contourArea(vertices.astype(np.float32))))
+        turned_area = abs(
+            float(cv2.contourArea(turned.astype(np.float32)))
+        )
+        intersection, _ = cv2.intersectConvexConvex(
+            vertices.astype(np.float32),
+            turned.astype(np.float32),
+        )
+        union = area + turned_area - float(intersection)
+        return float(intersection) / max(union, 1e-9)
+
     seen = set()
 
     def append_if_legal(name, layout, always=False):
@@ -2505,6 +2555,33 @@ def card_layout_variants(
             )
             append_if_legal(base_name + suffix, turned)
 
+    # A nearly centrally symmetric fragment can occupy the same geometric
+    # slot after an individual half turn while carrying different artwork.
+    # Enumerate only the strongest bounded cases; arbitrary polygons still
+    # require their complete two-piece column to turn together.
+    single_turns = []
+    for base_name, base_layout, _ in base_layouts:
+        for index, item in enumerate(base_layout):
+            similarity = single_half_turn_similarity(item)
+            if similarity < CARD_SINGLE_HALF_TURN_MIN_POLYGON_IOU:
+                continue
+            single_turns.append((
+                -similarity,
+                base_name,
+                base_layout,
+                index,
+                int(item.piece_id) + 1,
+            ))
+    single_turns.sort(key=lambda value: (value[0], value[1], value[4]))
+    for _, base_name, base_layout, index, piece_id in single_turns[
+        :CARD_SINGLE_HALF_TURN_MAX_VARIANTS
+    ]:
+        turned = half_turn_group(base_layout, frozenset((index,)))
+        append_if_legal(
+            "{}_single_half_turn_P{}".format(base_name, piece_id),
+            turned,
+        )
+
     return variants
 
 
@@ -2520,7 +2597,8 @@ def refine_card_column_orientation(
     global topology search.  At this bounded second stage we compare at most
     fifteen rigid variants of the already selected rectangle and use the
     pattern measured across its *actual* internal contacts as the primary
-    direction cue.
+    direction cue. Near-symmetric single-piece turns are also bounded by
+    polygon overlap before entering this scoring stage.
     """
     if not white_card_mode(texture_context):
         return candidate, []
@@ -3359,6 +3437,7 @@ def _solve_geometry_once(
     two_by_two_grid_topology_count = 0
     four_family_cycle_topology_count = 0
     card_search_pool_count = 0
+    card_long_direct_topology_count = 0
     early_accepted = False
     fast_path_accepted = False
     early_accept_reason = None
@@ -3404,6 +3483,27 @@ def _solve_geometry_once(
         ]
         if high_quality_card_candidates:
             early_accept_reason = "absolute_card_quality_gate"
+            return True
+        absolute_q12_candidates = [
+            candidate
+            for candidate in batch_candidates
+            if (
+                not white_card_mode(texture_context)
+                and question_1_2_dimensions(
+                    candidate.solution.width_cm,
+                    candidate.solution.height_cm,
+                )
+                and candidate.iou >= Q12_ABSOLUTE_EARLY_IOU
+                and candidate.overlap_ratio
+                <= Q12_ABSOLUTE_EARLY_MAX_OVERLAP_RATIO
+                and candidate.seam_rms_cm
+                <= Q12_ABSOLUTE_EARLY_MAX_SEAM_RMS_CM
+                and candidate.layout_contact_segments
+                >= Q12_ABSOLUTE_EARLY_MIN_CONTACT_SEGMENTS
+            )
+        ]
+        if absolute_q12_candidates:
+            early_accept_reason = "absolute_q12_geometry_gate"
             return True
         if len(batch_candidates) < 2:
             return False
@@ -3816,6 +3916,41 @@ def _solve_geometry_once(
         search_passes = []
         if rich_card_mode(texture_context):
             card_topology_pool = chain_priority + generic_card_pool
+            long_direct_topologies = []
+            long_direct_signatures = set()
+            for topology in full_topologies:
+                if not any(
+                    not family.is_chain_to_chain
+                    and family.split_count == 0
+                    and family.internal_length_cm
+                    >= CARD_LONG_DIRECT_MIN_LENGTH_CM
+                    for family in topology
+                ):
+                    continue
+                signature = topology_signature(topology)
+                if signature in long_direct_signatures:
+                    continue
+                long_direct_topologies.append(topology)
+                long_direct_signatures.add(signature)
+                if (
+                    len(long_direct_topologies)
+                    >= MAX_CARD_LONG_DIRECT_TOPOLOGIES
+                ):
+                    break
+            if long_direct_topologies:
+                card_long_direct_topology_count = len(
+                    long_direct_topologies
+                )
+                search_passes.append(
+                    (
+                        "card_long_direct",
+                        long_direct_topologies,
+                        min(
+                            len(long_direct_topologies),
+                            MAX_COARSE_TOPOLOGIES,
+                        ),
+                    )
+                )
             generic_fast_topologies = generic_card_topologies[
                 :FAST_STRICT_TOPOLOGIES
             ]
@@ -3953,6 +4088,15 @@ def _solve_geometry_once(
             and batch_early_accepted
         ):
             fast_path_accepted = pass_name == "fast"
+            break
+        if (
+            pass_name == "card_long_direct"
+            and batch_early_accepted
+            and early_accept_reason == "card_quality_gate"
+        ):
+            # A long-edge batch exists to rescue distorted geometry.  Do not
+            # let rectangle quality alone skip the wider artwork comparison;
+            # only a texture-margin decision is strong enough to stop here.
             break
         if pass_name == "full":
             break
@@ -4129,7 +4273,7 @@ def _solve_geometry_once(
     second = distinct[1] if len(distinct) > 1 else None
     elapsed = pytime.monotonic() - started
     _LAST_DIAGNOSTICS = {
-        "version": "v5.21-equivalent-cache",
+        "version": "v5.24-long-direct-card",
         "seam_family_count": len(families),
         "chain_to_chain_family_count": sum(
             family.is_chain_to_chain for family in families
@@ -4179,6 +4323,9 @@ def _solve_geometry_once(
             four_family_cycle_topology_count
         ),
         "card_search_pool_count": card_search_pool_count,
+        "card_long_direct_topology_count": (
+            card_long_direct_topology_count
+        ),
         "card_border_topology_quota": (
             WHITE_CARD_BORDER_TOPOLOGIES
             if rich_card_mode(texture_context)
@@ -4240,6 +4387,38 @@ def _solve_geometry_once(
                 0.0
                 if texture_context is None
                 else texture_context.ink_fraction
+            ),
+            6,
+        ),
+        "dark_ink_fraction": round(
+            float(
+                0.0
+                if texture_context is None
+                else texture_context.dark_ink_fraction
+            ),
+            6,
+        ),
+        "very_dark_ink_fraction": round(
+            float(
+                0.0
+                if texture_context is None
+                else texture_context.very_dark_ink_fraction
+            ),
+            6,
+        ),
+        "vivid_print_fraction": round(
+            float(
+                0.0
+                if texture_context is None
+                else texture_context.vivid_print_fraction
+            ),
+            6,
+        ),
+        "white_material_fraction": round(
+            float(
+                0.0
+                if texture_context is None
+                else texture_context.white_material_fraction
             ),
             6,
         ),
@@ -4694,23 +4873,30 @@ def _solve_geometry_once(
             ] = "card_component_consensus"
         else:
             _LAST_DIAGNOSTICS["ambiguous"] = True
-            # A geometry-only fallback can silently destroy flower alignment.
-            # If the image contains strong seam texture, report uncertainty
-            # instead of returning an unverified motion plan.
+            # Rectangle assembly is the primary task.  If multiple card
+            # topologies survive every mechanical and white-border gate,
+            # keep the best mixed-score rectangle even when artwork cannot
+            # uniquely separate it from the runner-up.  Texture remains a
+            # ranking penalty, but may not turn a safe rectangle into a hard
+            # failure.  The strict geometry gate above is intentionally not
+            # relaxed by this fallback.
             if (
                 texture_context is not None
                 and best.texture_confidence
                 >= TEXTURE_MIN_CONFIDENCE
             ):
                 _LAST_DIAGNOSTICS["fallback"] = (
-                    "disabled_for_textured_ambiguity"
+                    "geometry_card_fallback"
                 )
                 _LAST_DIAGNOSTICS["fallback_reason"] = (
-                    "ambiguous_global_candidate"
+                    "texture_ambiguity"
                 )
                 _LAST_DIAGNOSTICS["fallback_nodes"] = 0
-                return None, evaluated_total
-            return legacy_fallback("ambiguous_global_candidate")
+                _LAST_DIAGNOSTICS[
+                    "texture_fallback_used"
+                ] = True
+            else:
+                return legacy_fallback("ambiguous_global_candidate")
 
     if white_card_mode(texture_context):
         # The topology has now passed all rectangle, ambiguity and texture
@@ -5076,7 +5262,138 @@ def solve_geometry(
             )
             else None
         )
-        _LAST_DIAGNOSTICS["size_pass"] = "question_1_2_strict"
+        sparse_card_recovered = False
+        sparse_print_evidence = bool(
+            texture_context is not None
+            and texture_context.white_material_fraction
+            >= SPARSE_CARD_RECOVERY_MIN_WHITE_FRACTION
+            and (
+                (
+                    texture_context.white_card_confidence
+                    >= SPARSE_CARD_RECOVERY_MIN_CONFIDENCE
+                    and texture_context.ink_fraction
+                    >= SPARSE_CARD_RECOVERY_MIN_INK_FRACTION
+                )
+                or texture_context.very_dark_ink_fraction
+                >= SPARSE_CARD_RECOVERY_MIN_VERY_DARK_FRACTION
+                or texture_context.vivid_print_fraction
+                >= SPARSE_CARD_RECOVERY_MIN_VIVID_PRINT_FRACTION
+            )
+        )
+        if (
+            candidate_solution is not None
+            and texture_context is not None
+            and sparse_print_evidence
+        ):
+            short_side = min(
+                candidate_solution.width_cm,
+                candidate_solution.height_cm,
+            )
+            long_side = max(
+                candidate_solution.width_cm,
+                candidate_solution.height_cm,
+            )
+            aspect_ratio = long_side / max(short_side, 1e-9)
+            if (
+                SPARSE_CARD_RECOVERY_MIN_SHORT_CM
+                <= short_side
+                <= SPARSE_CARD_RECOVERY_MAX_SHORT_CM
+                and SPARSE_CARD_RECOVERY_MIN_LONG_CM
+                <= long_side
+                <= SPARSE_CARD_RECOVERY_MAX_LONG_CM
+                and SPARSE_CARD_RECOVERY_MIN_ASPECT_RATIO
+                <= aspect_ratio
+                <= SPARSE_CARD_RECOVERY_MAX_ASPECT_RATIO
+            ):
+                recovered_candidate = card_candidate_from_solution(
+                    candidate_solution,
+                    normalized_pieces,
+                    texture_context,
+                )
+                recovered_candidate.layout_variant = (
+                    "sparse_card_recovery"
+                )
+                recovered_candidate.topology_signature = (
+                    "sparse_card_recovery",
+                )
+                (
+                    recovered_candidate,
+                    orientation_diagnostics,
+                ) = refine_card_column_orientation(
+                    recovered_candidate,
+                    normalized_pieces,
+                    texture_context,
+                )
+                if card_candidate_is_executable(recovered_candidate):
+                    strict_solution = recovered_candidate.solution
+                    sparse_card_recovered = True
+                    _LAST_DIAGNOSTICS.update(
+                        {
+                            "card_texture_mode": "sparse_recovery",
+                            "sparse_card_recovery": True,
+                            "sparse_card_recovery_aspect_ratio": round(
+                                aspect_ratio,
+                                6,
+                            ),
+                            "sparse_card_recovery_very_dark_fraction": round(
+                                texture_context.very_dark_ink_fraction,
+                                6,
+                            ),
+                            "sparse_card_recovery_vivid_print_fraction": round(
+                                texture_context.vivid_print_fraction,
+                                6,
+                            ),
+                            "best_score": round(
+                                recovered_candidate.score,
+                                6,
+                            ),
+                            "best_iou": round(
+                                recovered_candidate.iou,
+                                6,
+                            ),
+                            "best_overlap_ratio": round(
+                                recovered_candidate.overlap_ratio,
+                                6,
+                            ),
+                            "best_texture_score": round(
+                                recovered_candidate.texture_score,
+                                6,
+                            ),
+                            "best_texture_confidence": round(
+                                recovered_candidate.texture_confidence,
+                                6,
+                            ),
+                            "best_layout_perimeter_confidence": round(
+                                recovered_candidate
+                                .layout_perimeter_confidence,
+                                6,
+                            ),
+                            "best_layout_perimeter_worst_side_score": round(
+                                recovered_candidate
+                                .layout_perimeter_worst_side_score,
+                                6,
+                            ),
+                            "best_layout_perimeter_worst_edge_score": round(
+                                recovered_candidate
+                                .layout_perimeter_worst_edge_score,
+                                6,
+                            ),
+                            "best_layout_variant": (
+                                recovered_candidate.layout_variant
+                            ),
+                            "orientation_refined_by": (
+                                "sparse_card_recovery_artwork"
+                            ),
+                            "best_orientation_candidates": (
+                                orientation_diagnostics
+                            ),
+                        }
+                    )
+        _LAST_DIAGNOSTICS["size_pass"] = (
+            "sparse_card_recovery"
+            if sparse_card_recovered
+            else "question_1_2_strict"
+        )
         _LAST_DIAGNOSTICS["core_attempt"] = {
             "best_iou": core_diagnostics.get("best_iou"),
             "fallback_reason": core_diagnostics.get(

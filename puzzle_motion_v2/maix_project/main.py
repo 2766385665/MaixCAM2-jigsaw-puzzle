@@ -7,22 +7,30 @@ import sys
 import time
 from pathlib import Path
 
-import cv2
-import numpy as np
-
 SCRIPT_DIR = str(Path(__file__).resolve().parent)
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
-import motion_protocol
 import piece_vision
-import puzzle_solver_v3 as puzzle_solver
-import texture_matcher
+from runtime_pipeline import (
+    build_point_to_pulse,
+    corrected_cm_to_live_screen,
+    draw_motion_plan,
+    prepare_detection_frame,
+    save_session as _save_session,
+    send_motion_plan as _send_motion_plan,
+    solve_detected_pieces as _solve_detected_pieces,
+)
 
 
-APP_VERSION = "5.9-card-row-swap-texture"
+APP_VERSION = "5.16-rail-limit-pickup"
 SOLVER_MAX_SECONDS = 23.0
 OUTPUT_DIR = "/root/puzzle_motion_output"
+# Zero keeps the ISP in automatic exposure mode. If repeatable fixed lighting
+# later requires manual exposure, set an absolute value in microseconds rather
+# than scaling an automatic reading; switching modes also changes ISP gain
+# behaviour, so a relative exposure value is not equivalent.
+CAMERA_MANUAL_EXPOSURE_US = 0
 # UART0 is the MaixCAM2 system UART.  Connect U0T to the STM32 RX, U0R to the
 # STM32 TX, and share GND.  The STM32 must ignore boot and system log bytes.
 MOTION_SERIAL_DEVICE = "/dev/ttyS0"
@@ -32,212 +40,34 @@ MOTION_SERIAL_PIN_FUNCTIONS = {}
 COLORS = piece_vision.COLORS
 
 
-def solve_detected_pieces(pieces, rectified=None):
-    solve_started = time.monotonic()
-    source_pieces_cm = [
-        np.asarray(piece.polygon, dtype=np.float64)
-        / piece_vision.PX_PER_CM
-        for piece in pieces
-    ]
-    texture_context = (
-        None
-        if rectified is None
-        else texture_matcher.build_context(
-            rectified,
-            piece_vision.PX_PER_CM,
-        )
-    )
-    texture_ready = time.monotonic()
-    solution, nodes = puzzle_solver.solve_geometry(
-        source_pieces_cm,
-        max_seconds=SOLVER_MAX_SECONDS,
-        texture_context=texture_context,
-    )
-    solver_finished = time.monotonic()
-    diagnostics = puzzle_solver.last_diagnostics()
-    print(
-        "V3 solver diagnostics:",
-        json.dumps(diagnostics, ensure_ascii=False),
-    )
-    if solution is None:
-        print(
-            "Solve timing: texture_context={:.3f}s solver={:.3f}s".format(
-                texture_ready - solve_started,
-                solver_finished - texture_ready,
-            )
-        )
-        if diagnostics.get("timed_out"):
-            return None, "Solver timeout {:.1f}s".format(
-                diagnostics.get(
-                    "elapsed_seconds",
-                    SOLVER_MAX_SECONDS,
-                )
-            )
-        return None, "No solution {:.1f}s nodes={}".format(
-            diagnostics.get("elapsed_seconds", 0.0),
-            nodes,
-        )
-    final_solution = puzzle_solver.canonical_target_solution(solution)
-    canonical_finished = time.monotonic()
-    plan = motion_protocol.build_motion_plan(
-        source_pieces_cm,
-        final_solution,
-    )
-    plan_finished = time.monotonic()
-    print(
-        "Solve timing: texture_context={:.3f}s solver={:.3f}s "
-        "canonical={:.3f}s motion_plan={:.3f}s total={:.3f}s".format(
-            texture_ready - solve_started,
-            solver_finished - texture_ready,
-            canonical_finished - solver_finished,
-            plan_finished - canonical_finished,
-            plan_finished - solve_started,
-        )
-    )
-    plan["solver_diagnostics"] = diagnostics
-    clearance = plan["solution"]["motion_clearance"]
-    if not clearance["overlap_verified"]:
-        return None, (
-            "Unsafe target overlap {:.2f}%".format(
-                100.0 * clearance["overlap_ratio"],
-            )
-        )
-    unsafe = [
-        item["id"]
-        for item in plan["pieces"]
-        if not item["pickup_safe"]
-    ]
-    if unsafe:
-        return plan, "Unsafe pickup: P{}".format(
-            ",P".join(str(value) for value in unsafe)
-        )
-    return plan, (
-        "Solved {:.1f}x{:.1f} IoU={:.1f}% {:.1f}s".format(
-            plan["solution"]["target_width_cm"],
-            plan["solution"]["target_height_cm"],
-            100.0 * plan["solution"]["rectangularity"],
-            diagnostics.get("elapsed_seconds", 0.0),
-        )
+def configure_camera_exposure(cam, camera_module) -> None:
+    """入口层适配器：把设备配置转交给运行时流程模块。"""
+    from runtime_pipeline import configure_camera_exposure as _configure
+
+    return _configure(cam, camera_module, CAMERA_MANUAL_EXPOSURE_US)
+
+
+def solve_detected_pieces(pieces, rectified=None, geometry_calibration=None):
+    """入口层适配器：使用本版本的求解时限执行业务流程。"""
+    return _solve_detected_pieces(
+        pieces, rectified, geometry_calibration, SOLVER_MAX_SECONDS
     )
 
 
 def send_motion_plan(plan: dict) -> tuple[bool, str]:
-    """Send raw STM32 frames; the plan keeps hex strings only for debugging."""
-    return motion_protocol.send_stm32_frames(
-        plan["commands"],
-        MOTION_SERIAL_DEVICE,
+    """入口层适配器：使用配置的 UART 设备发送运动计划。"""
+    return _send_motion_plan(plan, MOTION_SERIAL_DEVICE)
+
+
+def save_session(raw, rectified, binary, annotated, pieces, plan) -> str:
+    """入口层适配器：按当前输出目录保存一次完整会话。"""
+    return _save_session(
+        raw, rectified, binary, annotated, pieces, plan, OUTPUT_DIR
     )
-
-
-def draw_motion_plan(
-    annotated: np.ndarray,
-    plan: dict | None,
-) -> np.ndarray:
-    canvas = annotated.copy()
-    if plan is None:
-        return canvas
-    scale = piece_vision.PX_PER_CM
-    for item in plan["pieces"]:
-        piece_id = int(item["id"])
-        color = COLORS[(piece_id - 1) % len(COLORS)]
-        target = np.round(
-            np.asarray(item["target_vertices_cm"]) * scale
-        ).astype(np.int32)
-        source_pick = np.round(
-            np.asarray(item["pickup_source_cm"]) * scale
-        ).astype(int)
-        target_pick = np.round(
-            np.asarray(item["pickup_target_cm"]) * scale
-        ).astype(int)
-        cv2.polylines(
-            canvas,
-            [target],
-            True,
-            color,
-            4,
-            cv2.LINE_AA,
-        )
-        cv2.circle(
-            canvas,
-            tuple(source_pick),
-            10,
-            (0, 0, 255),
-            -1,
-            cv2.LINE_AA,
-        )
-        cv2.circle(
-            canvas,
-            tuple(target_pick),
-            10,
-            color,
-            -1,
-            cv2.LINE_AA,
-        )
-        cv2.arrowedLine(
-            canvas,
-            tuple(source_pick),
-            tuple(target_pick),
-            color,
-            3,
-            cv2.LINE_AA,
-            tipLength=0.04,
-        )
-        label = "P{} {:+.1f}deg".format(
-            piece_id,
-            item["rotation_deg_clockwise"],
-        )
-        cv2.putText(
-            canvas,
-            label,
-            tuple(target_pick + np.asarray([12, -8])),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.55,
-            color,
-            2,
-            cv2.LINE_AA,
-        )
-    cv2.line(
-        canvas,
-        (0, int(piece_vision.RECTIFIED_HEIGHT * 0.5)),
-        (
-            piece_vision.RECTIFIED_WIDTH - 1,
-            int(piece_vision.RECTIFIED_HEIGHT * 0.5),
-        ),
-        (255, 255, 0),
-        2,
-    )
-    return canvas
-
-
-def save_session(
-    raw,
-    rectified,
-    binary,
-    annotated,
-    pieces,
-    plan,
-) -> str:
-    prefix = piece_vision.save_debug(
-        raw,
-        rectified,
-        binary,
-        annotated,
-        pieces,
-        OUTPUT_DIR,
-    )
-    if plan is not None:
-        Path(prefix + "_motion.json").write_text(
-            json.dumps(plan, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        Path(prefix + "_stm32.txt").write_text(
-            "\n".join(plan["stm32_frames"]) + "\n",
-            encoding="ascii",
-        )
-    return prefix
 
 
 def run_maix() -> int:
+    # 设备层：只有本函数接触 Maix 专用 API，便于 PC 端复用业务模块。
     from maix import (
         app,
         camera,
@@ -249,6 +79,7 @@ def run_maix() -> int:
         uart,
     )
 
+    # 通信初始化：UART 失败时仍允许识别和预览运行，便于现场排查。
     motion_serial = None
     try:
         for pin, function in MOTION_SERIAL_PIN_FUNCTIONS.items():
@@ -272,6 +103,7 @@ def run_maix() -> int:
     except Exception as error:
         print("Motion UART unavailable: {}".format(error))
 
+    # 摄像头初始化：先丢弃启动帧，再应用曝光和稀疏几何标定。
     cam = camera.Camera(
         piece_vision.CAMERA_WIDTH,
         piece_vision.CAMERA_HEIGHT,
@@ -279,10 +111,22 @@ def run_maix() -> int:
         fps=piece_vision.CAMERA_FPS,
     )
     cam.skip_frames(12)
+    configure_camera_exposure(cam, camera)
+    cam.skip_frames(4)
     disp = display.Display()
     touch = touchscreen.TouchScreen()
     touch.clear()
+    geometry_calibration = piece_vision.build_sparse_geometry_calibration(
+        piece_vision.CAMERA_WIDTH,
+        piece_vision.CAMERA_HEIGHT,
+    )
+    print(
+        "Sparse contour undistortion: {}".format(
+            "enabled" if geometry_calibration is not None else "disabled"
+        )
+    )
 
+    # 交互状态：ready 实时预览，frozen 保留最近一次识别结果。
     mode = "ready"
     pressed_before = False
     last_touch = (0, 0)
@@ -294,6 +138,7 @@ def run_maix() -> int:
     last_plan = None
     message = "v{} Align A4, tap START".format(APP_VERSION)
 
+    # 主循环：预览 -> 点击 START -> 采集/识别 -> 求解 -> UART -> 保存。
     while not app.need_exit():
         if mode != "frozen" or last_raw is None:
             maix_frame = cam.read()
@@ -311,6 +156,7 @@ def run_maix() -> int:
             preview_source = draw_motion_plan(
                 last_annotated,
                 last_plan,
+                geometry_calibration,
             )
 
         screen = piece_vision.compose_screen(
@@ -341,7 +187,11 @@ def run_maix() -> int:
                             last_raw,
                             last_rectified,
                             last_binary,
-                            draw_motion_plan(last_annotated, last_plan),
+                            draw_motion_plan(
+                                last_annotated,
+                                last_plan,
+                                geometry_calibration,
+                            ),
                             last_pieces,
                             last_plan,
                         )
@@ -356,11 +206,8 @@ def run_maix() -> int:
                     continue
                 button_started = time.monotonic()
                 maix_frame = cam.read()
-                last_raw = image.image2cv(
-                    maix_frame,
-                    ensure_bgr=False,
-                    copy=True,
-                )
+                last_raw = prepare_detection_frame(maix_frame, image)
+                del maix_frame
                 captured_at = time.monotonic()
                 mode = "frozen"
                 message = "Detecting..."
@@ -376,18 +223,27 @@ def run_maix() -> int:
                     copy=True,
                 ))
 
+                # 视觉阶段：透视矫正、分割、轮廓拟合和结果标注。
                 last_rectified, _ = piece_vision.rectify_a4(last_raw)
                 rectified_at = time.monotonic()
                 (
                     last_pieces,
                     last_binary,
                     threshold,
-                ) = piece_vision.detect_pieces(last_rectified)
+                ) = piece_vision.detect_pieces(
+                    last_rectified,
+                    geometry_calibration,
+                )
                 detected_at = time.monotonic()
                 last_annotated = piece_vision.draw_detection(
                     last_rectified,
                     last_pieces,
                     threshold,
+                    (
+                        None
+                        if geometry_calibration is None
+                        else geometry_calibration.uncorrect_points
+                    ),
                 )
                 annotated_at = time.monotonic()
                 print(
@@ -400,6 +256,7 @@ def run_maix() -> int:
                     )
                 )
 
+                # 求解阶段：几何拼接、纹理排序、吸取点安全性检查。
                 message = "Solving... max {:.0f}s".format(
                     SOLVER_MAX_SECONDS
                 )
@@ -416,8 +273,10 @@ def run_maix() -> int:
                 last_plan, message = solve_detected_pieces(
                     last_pieces,
                     last_rectified,
+                    geometry_calibration,
                 )
                 print(message)
+                # 执行阶段：只有计划通过安全检查才会尝试发送 UART。
                 if last_plan is not None:
                     serial_started = time.monotonic()
                     sent, serial_message = send_motion_plan(last_plan)
@@ -442,7 +301,11 @@ def run_maix() -> int:
                 # image saving can take seconds on the SD card, so they must
                 # not delay the operator-facing result frame.
                 result_screen = piece_vision.compose_screen(
-                    draw_motion_plan(last_annotated, last_plan),
+                    draw_motion_plan(
+                        last_annotated,
+                        last_plan,
+                        geometry_calibration,
+                    ),
                     mode,
                     message,
                 )
@@ -466,7 +329,11 @@ def run_maix() -> int:
                     last_raw,
                     last_rectified,
                     last_binary,
-                    draw_motion_plan(last_annotated, last_plan),
+                    draw_motion_plan(
+                        last_annotated,
+                        last_plan,
+                        geometry_calibration,
+                    ),
                     last_pieces,
                     last_plan,
                 )

@@ -29,6 +29,48 @@ def rectangle(x0, y0, x1, y1):
 
 
 def main() -> int:
+    # A rail boundary can exclude every point with the preferred 2 mm margin
+    # while still leaving enough room for the complete magnet footprint.
+    edge_piece = rectangle(0.0, 0.0, 4.0, 2.0)
+    edge_pickup, edge_clearance, edge_safe = (
+        motion_protocol.safe_pickup_point(
+            edge_piece,
+            candidate_validator=lambda point: point[0] <= 0.65,
+        )
+    )
+    if not edge_safe:
+        raise AssertionError("Rail-limit pickup lost full magnet support")
+    if not (
+        motion_protocol.MAGNET_RADIUS_CM
+        <= edge_clearance
+        < motion_protocol.MAGNET_RADIUS_CM
+        + motion_protocol.PICKUP_MARGIN_CM
+    ):
+        raise AssertionError(
+            "Rail-limit pickup did not use the reduced-margin fallback"
+        )
+    if edge_pickup[0] > 0.65:
+        raise AssertionError("Rail-limit pickup exceeded its reachable bound")
+
+    # When the rail excludes every full-support point, use the reachable point
+    # with maximum clearance and explicitly report it as partial support.
+    partial_pickup, partial_clearance, partial_safe = (
+        motion_protocol.safe_pickup_point(
+            edge_piece,
+            candidate_validator=lambda point: point[0] <= 0.45,
+        )
+    )
+    if partial_safe:
+        raise AssertionError("Partial rail-limit pickup reported full support")
+    if not (
+        motion_protocol.PARTIAL_PICKUP_MIN_CLEARANCE_CM
+        <= partial_clearance
+        < motion_protocol.MAGNET_RADIUS_CM
+    ):
+        raise AssertionError("Partial pickup clearance is outside its policy")
+    if partial_pickup[0] > 0.45:
+        raise AssertionError("Partial pickup exceeded its reachable bound")
+
     # Simulate 1 mm contour/rail overlap on both internal axes.  The solver
     # result itself remains untouched; only the generated motion targets may
     # move outward.

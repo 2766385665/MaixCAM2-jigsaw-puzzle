@@ -39,13 +39,16 @@ TARGET_MAX_SHORT_CM = 9.00
 TARGET_MIN_LONG_CM = 9.00
 TARGET_MAX_LONG_CM = 12.00
 
-A4_WIDTH_CM = 21.0
-A4_HEIGHT_CM = 29.7
-A4_HALF_HEIGHT_CM = A4_HEIGHT_CM * 0.5
+A4_WIDTH_CM = 29.7
+A4_HEIGHT_CM = 21.0
+A4_HALF_WIDTH_CM = A4_WIDTH_CM * 0.5
 # Keep completed pieces well clear of the source/target divider.  This is a
 # work-area constraint, not a solver tolerance, so every valid layout gets
 # the same physical clearance from the A4 centre line.
-TARGET_REGION_CENTERLINE_CLEARANCE_CM = 2.0
+# Leave room for pickup motion and calibration error at the source/target
+# divider.  The former 2 cm margin made a portrait card visually touch the
+# centre guide after contour and pulse-coordinate rounding.
+TARGET_REGION_CENTERLINE_CLEARANCE_CM = 4.0
 
 _LAST_SEARCH_TIMED_OUT = False
 
@@ -733,9 +736,9 @@ def solve_geometry(
 
 def canonical_target_solution(
     solution: Solution,
-    top_margin_cm: float = TARGET_REGION_CENTERLINE_CLEARANCE_CM,
+    centerline_margin_cm: float = TARGET_REGION_CENTERLINE_CLEARANCE_CM,
 ) -> Solution:
-    """Rotate and translate a solved rectangle into the lower A4 half."""
+    """Rotate and translate a solved rectangle into the left A4 half."""
     box, _, _, _ = minimum_rectangle(solution.placements)
     vectors = [
         box[(index + 1) % 4] - box[index]
@@ -760,7 +763,9 @@ def canonical_target_solution(
     minimum = np.min(rotated_points, axis=0)
     maximum = np.max(rotated_points, axis=0)
     size = maximum - minimum
-    if size[1] > size[0]:
+    # The completed rectangle is placed portrait-wise in the left A4 half.
+    # Rotate only when its long side is currently horizontal.
+    if size[0] > size[1]:
         quarter_turn = np.asarray(
             [[0.0, -1.0], [1.0, 0.0]],
             dtype=np.float64,
@@ -779,8 +784,8 @@ def canonical_target_solution(
 
     target_center = np.asarray(
         [
-            A4_WIDTH_CM * 0.5,
-            A4_HALF_HEIGHT_CM + top_margin_cm + size[1] * 0.5,
+            A4_HALF_WIDTH_CM - centerline_margin_cm - size[0] * 0.5,
+            A4_HEIGHT_CM * 0.5,
         ],
         dtype=np.float64,
     )

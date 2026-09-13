@@ -18,3 +18,5 @@ env/
 puzzle_validation_output/
 puzzle_motion_v2/pc_simulator/v3_validation/*.mp4
 puzzle_motion_v2/pc_simulator/demo_motion_simulation.mp4
+puzzle_motion_v2/maix_project/dist/
+puzzle_motion_v2/pc_tests/artifacts/

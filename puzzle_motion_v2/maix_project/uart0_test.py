@@ -27,12 +27,12 @@ BAUDRATE = 115200
 DEFAULT_READ_MS = 0
 DEFAULT_INTERVAL_MS = 500
 
-# Positions are millimetres after encoding; angle is a whole signed degree.
+# Positions are absolute rail pulses; angle is a whole signed degree.
 TEST_COMMAND = {
-    "pick_x_cm": 8.3,
-    "pick_y_cm": 8.8,
-    "place_x_cm": 8.1,
-    "place_y_cm": 19.0,
+    "pick_x_pulse": 5000,
+    "pick_y_pulse": 6000,
+    "place_x_pulse": 3000,
+    "place_y_pulse": 3000,
     "rotate_deg_clockwise": -90.0,
 }
 
@@ -40,10 +40,10 @@ TEST_COMMAND = {
 def encode_test_frame(command: dict) -> bytes:
     """Build the production UART frame without importing project modules."""
     fields = (
-        int(round(float(command["pick_x_cm"]) * 10.0)),
-        int(round(float(command["pick_y_cm"]) * 10.0)),
-        int(round(float(command["place_x_cm"]) * 10.0)),
-        int(round(float(command["place_y_cm"]) * 10.0)),
+        int(command["pick_x_pulse"]),
+        int(command["pick_y_pulse"]),
+        int(command["place_x_pulse"]),
+        int(command["place_y_pulse"]),
         int(round(float(command["rotate_deg_clockwise"]))),
     )
     if any(value < -32768 or value > 32767 for value in fields):
@@ -122,7 +122,8 @@ def main() -> None:
         print("UART0 ready: {} {}bps".format(DEVICE_PATH, BAUDRATE))
         print("Test frame ({} bytes): {}".format(len(frame), frame.hex().upper()))
         print(
-            "Fields: pick=(83,88)mm place=(81,190)mm angle=-90deg CRC={:02X}".format(
+            "Fields: pick=(5000,6000)pulse place=(3000,3000)pulse "
+            "angle=-90deg CRC={:02X}".format(
                 frame[-1]
             )
         )

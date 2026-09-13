@@ -60,9 +60,13 @@ class TextureContext:
     texture_richness: float = 0.0
     ink_fraction: float = 0.0
     dark_ink_fraction: float = 0.0
+    very_dark_ink_fraction: float = 0.0
+    vivid_print_fraction: float = 0.0
     chromatic_fraction: float = 0.0
+    white_material_fraction: float = 0.0
     piece_profile_ready: bool = False
     edge_border_costs: dict | None = None
+    sample_point_transform: object | None = None
 
 
 # White paper alone is shared by Questions 1/2 and the playing-card task.
@@ -74,6 +78,7 @@ MIN_CARD_CHROMATIC_FRACTION = 0.003
 def build_context(
     rectified_bgr: np.ndarray,
     px_per_cm: float,
+    sample_point_transform=None,
 ) -> TextureContext:
     """Precompute colour spaces once for all candidate layouts."""
     blurred = cv2.GaussianBlur(rectified_bgr, (3, 3), 0)
@@ -81,6 +86,7 @@ def build_context(
         lab=cv2.cvtColor(blurred, cv2.COLOR_BGR2LAB),
         gray=cv2.cvtColor(blurred, cv2.COLOR_BGR2GRAY),
         px_per_cm=float(px_per_cm),
+        sample_point_transform=sample_point_transform,
     )
 
 
@@ -109,7 +115,8 @@ def _edge_border_ink_score(
     samples = []
     valid = np.ones(sample_count, dtype=bool)
     for depth in (0.12, 0.25, 0.40):
-        lab, layer_valid = _bilinear_samples(
+        lab, layer_valid = _context_samples(
+            context,
             context.lab,
             (base + normal[None, :] * depth)
             * context.px_per_cm,
@@ -158,7 +165,10 @@ def prepare_context_for_pieces(
             mask,
             [
                 np.round(
-                    polygon * context.px_per_cm
+                    _context_pixel_points(
+                        context,
+                        polygon * context.px_per_cm,
+                    )
                 ).astype(np.int32)
             ],
             255,
@@ -174,6 +184,7 @@ def prepare_context_for_pieces(
         & (np.abs(pixels_i16[:, 2] - 128) < 24)
     )
     white_fraction = float(np.mean(white))
+    context.white_material_fraction = white_fraction
     # White material identifies a playing card, but it does not tell us
     # whether the expensive artwork-assisted topology search is useful.
     # A sparse number card can still be more than 60% white and previously
@@ -193,18 +204,67 @@ def prepare_context_for_pieces(
     # an entire white puzzle look dark.  Real card printing still contains a
     # measurable population of genuinely dark pixels.
     dark_ink = pixels_i16[:, 0] < 120
+    very_dark_ink = pixels_i16[:, 0] < 90
     context.ink_fraction = float(np.mean(ink))
     context.dark_ink_fraction = float(np.mean(dark_ink))
+    context.very_dark_ink_fraction = float(np.mean(very_dark_ink))
     context.chromatic_fraction = float(np.mean(chromatic))
-    richness_signal = (
-        0.35 * context.dark_ink_fraction
-        + 0.65 * context.chromatic_fraction
+    # Require colour that differs from both white card stock and the current
+    # purple background. This retains red suits and J/Q/K artwork while
+    # rejecting colour introduced by interpolation along a piece boundary.
+    background_lab = context.lab[::8, ::8]
+    background_mask = mask[::8, ::8] == 0
+    if np.any(background_mask):
+        background_median = np.median(
+            background_lab[background_mask].astype(np.float64),
+            axis=0,
+        )
+        chroma_delta_a = pixels_i16[:, 1] - 128
+        chroma_delta_b = pixels_i16[:, 2] - 128
+        chroma_distance_sq = (
+            chroma_delta_a * chroma_delta_a
+            + chroma_delta_b * chroma_delta_b
+        )
+        background_delta = (
+            pixels_i16.astype(np.float64)
+            - background_median[None, :]
+        )
+        background_distance_sq = np.sum(
+            background_delta * background_delta,
+            axis=1,
+        )
+        vivid_print = (
+            (chroma_distance_sq >= 45 * 45)
+            & (background_distance_sq >= 25 * 25)
+        )
+        context.vivid_print_fraction = float(np.mean(vivid_print))
+    # Do not average independent artwork cues before thresholding them.  A
+    # colourful face-card fragment can contain little neutral black ink, so
+    # the old weighted average classified captures with 12% chromatic print
+    # as almost texture-free.  Conversely, a black number card can carry
+    # useful dark ink without colour.  The strongest independently reliable
+    # cue determines richness; total non-white coverage is only a weak
+    # fallback because exposure shifts can inflate it.
+    chromatic_richness = np.clip(
+        (context.chromatic_fraction - 0.02) / 0.16,
+        0.0,
+        1.0,
+    )
+    dark_ink_richness = np.clip(
+        (context.dark_ink_fraction - 0.04) / 0.20,
+        0.0,
+        1.0,
+    )
+    coverage_richness = np.clip(
+        (context.ink_fraction - 0.18) / 0.50,
+        0.0,
+        0.55,
     )
     context.texture_richness = float(
-        np.clip(
-            (richness_signal - 0.12) / 0.18,
-            0.0,
-            1.0,
+        max(
+            chromatic_richness,
+            dark_ink_richness,
+            coverage_richness,
         )
     )
     material_confidence = float(
@@ -291,6 +351,27 @@ def _bilinear_samples(
         + fourth * wx * wy
     )
     return values, valid
+
+
+def _context_pixel_points(
+    context: TextureContext,
+    points_px: np.ndarray,
+) -> np.ndarray:
+    transform = context.sample_point_transform
+    if transform is None:
+        return np.asarray(points_px)
+    return np.asarray(transform(points_px), dtype=np.float64)
+
+
+def _context_samples(
+    context: TextureContext,
+    image: np.ndarray,
+    points_px: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    return _bilinear_samples(
+        image,
+        _context_pixel_points(context, points_px),
+    )
 
 
 def _source_points(
@@ -499,19 +580,23 @@ def _segment_score(
             short_placement,
             short_target,
         ) * context.px_per_cm
-        long_lab, valid_a = _bilinear_samples(
+        long_lab, valid_a = _context_samples(
+            context,
             context.lab,
             long_source,
         )
-        short_lab, valid_b = _bilinear_samples(
+        short_lab, valid_b = _context_samples(
+            context,
             context.lab,
             short_source,
         )
-        long_gray, valid_c = _bilinear_samples(
+        long_gray, valid_c = _context_samples(
+            context,
             context.gray,
             long_source,
         )
-        short_gray, valid_d = _bilinear_samples(
+        short_gray, valid_d = _context_samples(
+            context,
             context.gray,
             short_source,
         )
@@ -706,19 +791,23 @@ def _source_edge_segment_score(
         short_points = (
             short_base + short_normal[None, :] * depth
         ) * context.px_per_cm
-        long_lab, valid_a = _bilinear_samples(
+        long_lab, valid_a = _context_samples(
+            context,
             context.lab,
             long_points,
         )
-        short_lab, valid_b = _bilinear_samples(
+        short_lab, valid_b = _context_samples(
+            context,
             context.lab,
             short_points,
         )
-        long_gray, valid_c = _bilinear_samples(
+        long_gray, valid_c = _context_samples(
+            context,
             context.gray,
             long_points,
         )
-        short_gray, valid_d = _bilinear_samples(
+        short_gray, valid_d = _context_samples(
+            context,
             context.gray,
             short_points,
         )
@@ -985,7 +1074,8 @@ def _score_half_turn_symmetry(
             )
             * context.px_per_cm
         )
-        values, valid = _bilinear_samples(
+        values, valid = _context_samples(
+            context,
             context.lab,
             source_points,
         )

@@ -5,7 +5,7 @@ MaixCAM 2 first-version detector for the 2026 electronic-design puzzle task.
 What this version does:
   * reads the camera through the official MaixPy API;
   * rectifies an A4 sheet using a fixed on-screen four-corner guide;
-  * detects up to four bright puzzle pieces in the upper half;
+  * detects up to four bright puzzle pieces in the right half;
   * fits/refines 3-to-5-edge polygons;
   * shows piece ID, edge count, area and edge lengths;
   * supports touch buttons for freeze/resume and saving debug images.
@@ -33,31 +33,53 @@ from typing import Iterable
 import cv2
 import numpy as np
 
+import camera_calibration
+
 
 # -------------------------- adjustable parameters ---------------------------
 
-APP_VERSION = "1.13-near-limit-edge-preserve"
-CAMERA_WIDTH = 2560
-CAMERA_HEIGHT = 1440
+APP_VERSION = "1.21-colour-white-union"
+# Preserve source sampling for one-centimetre edges. Lower camera resolutions
+# were rejected by the historical contour regression even when the rectified
+# image was restored to the same 40 px/cm coordinate system.
+CAMERA_WIDTH = 1920
+CAMERA_HEIGHT = 1080
 CAMERA_FPS = 30
 BUTTON_DETECT_RECT = (10, 375, 310, 465)
 BUTTON_SAVE_RECT = (330, 375, 630, 465)
 
-# Rectified A4: 40 pixels per centimetre.
-A4_WIDTH_CM = 21.0
-A4_HEIGHT_CM = 29.7
+# Rectified landscape A4: keep the established 40 pixels per centimetre.
+# 1188 x 840 has exactly the same pixel count as the old 840 x 1188 image,
+# so edge sampling stays unchanged while the physical axes match the rig.
+A4_WIDTH_CM = 29.7
+A4_HEIGHT_CM = 21.0
 PX_PER_CM = 40.0
 RECTIFIED_WIDTH = int(round(A4_WIDTH_CM * PX_PER_CM))
 RECTIFIED_HEIGHT = int(round(A4_HEIGHT_CM * PX_PER_CM))
 
-# The A4 guide occupies this fraction of camera image height.
-A4_GUIDE_HEIGHT_RATIO = 0.90
+# Fixed front-facing landscape installation, expressed as normalized camera
+# coordinates. Keep the guide centre and height while matching the physical
+# A4 aspect ratio in camera pixels (29.7 / 21.0).
+A4_GUIDE_CORNERS_NORMALIZED = np.asarray(
+    [
+        [0.204, 0.132],
+        [0.801, 0.132],
+        [0.801, 0.882],
+        [0.204, 0.882],
+    ],
+    dtype=np.float32,
+)
 
-# Pieces are initially in the upper half. Avoid the paper border and separator.
-WORK_X0 = 0.02
+# Pieces start on the right. The crop extends 10% over the centre line so a
+# piece close to the divider is not clipped, but its centroid must still lie
+# on the right side. The completed rectangle is placed strictly on the left.
+# The 10% guard band also supports pieces whose centroid is on the right but
+# whose long edge crosses the divider, as in the mounted-camera test image.
+WORK_X0 = 0.40
 WORK_X1 = 0.98
 WORK_Y0 = 0.02
-WORK_Y1 = 0.50
+WORK_Y1 = 0.98
+SOURCE_CENTER_X_MIN = 0.50
 
 # Segmentation automatically supports bright pieces on a dark sheet and
 # darker test pieces on a white sheet.
@@ -65,6 +87,8 @@ MIN_BRIGHT_THRESHOLD = 125
 MAX_BRIGHT_THRESHOLD = 235
 MIN_COLOR_DISTANCE_THRESHOLD = 14
 MAX_COLOR_DISTANCE_THRESHOLD = 90
+WHITE_MAX_SATURATION = 40
+WHITE_MIN_VALUE = 90
 MIN_PIECE_AREA_CM2 = 2.5
 MAX_PIECE_AREA_CM2 = 65.0
 MAX_PIECES = 4
@@ -141,24 +165,296 @@ class Piece:
         }
 
 
-def a4_guide_corners(image_width: int, image_height: int) -> np.ndarray:
-    """Return the expected A4 corner positions in the camera image."""
-    guide_height = image_height * A4_GUIDE_HEIGHT_RATIO
-    guide_width = guide_height * A4_WIDTH_CM / A4_HEIGHT_CM
-    if guide_width > image_width * 0.96:
-        guide_width = image_width * 0.96
-        guide_height = guide_width * A4_HEIGHT_CM / A4_WIDTH_CM
-    x0 = (image_width - guide_width) * 0.5
-    y0 = (image_height - guide_height) * 0.5
-    return np.asarray(
+@dataclass(frozen=True)
+class SparseGeometryCalibration:
+    """Small matrices for correcting contour points without image remaps."""
+
+    camera_matrix: np.ndarray | None
+    distortion_coefficients: np.ndarray | None
+    image_width: int
+    image_height: int
+    lens_corr_strength: float | None
+    lens_corr_zoom: float
+    lens_corr_center_normalized: tuple[float, float]
+    distorted_rectified_to_camera: np.ndarray
+    distorted_camera_to_rectified: np.ndarray
+    undistorted_camera_to_rectified: np.ndarray
+    undistorted_rectified_to_camera: np.ndarray
+
+    def correct_contour(self, contour: np.ndarray) -> np.ndarray:
+        original_shape = contour.shape
+        points = np.asarray(contour, dtype=np.float32).reshape(-1, 1, 2)
+        distorted_camera = cv2.perspectiveTransform(
+            points,
+            self.distorted_rectified_to_camera,
+        )
+        if self.camera_matrix is None:
+            undistorted_camera = _sparse_lens_corr_points(
+                distorted_camera,
+                self.image_width,
+                self.image_height,
+                self.lens_corr_strength,
+                self.lens_corr_zoom,
+                self.lens_corr_center_normalized,
+            )
+        else:
+            undistorted_camera = cv2.undistortPoints(
+                distorted_camera,
+                self.camera_matrix,
+                self.distortion_coefficients,
+                P=self.camera_matrix,
+            )
+        corrected = cv2.perspectiveTransform(
+            undistorted_camera,
+            self.undistorted_camera_to_rectified,
+        )
+        return corrected.reshape(original_shape).astype(np.float32)
+
+    def uncorrect_points(self, points: np.ndarray) -> np.ndarray:
+        """Map corrected A4 points to the uncorrected texture image."""
+        original_shape = np.asarray(points).shape
+        distorted_camera = self.corrected_to_camera_points(points)
+        distorted_camera = np.asarray(
+            distorted_camera,
+            dtype=np.float32,
+        ).reshape(-1, 1, 2)
+        distorted_rectified = cv2.perspectiveTransform(
+            distorted_camera,
+            self.distorted_camera_to_rectified,
+        )
+        return distorted_rectified.reshape(original_shape).astype(np.float32)
+
+    def corrected_to_camera_points(self, points: np.ndarray) -> np.ndarray:
+        """Map corrected A4 pixels back to distorted raw-camera pixels."""
+        original_shape = np.asarray(points).shape
+        corrected = np.asarray(points, dtype=np.float32).reshape(-1, 1, 2)
+        undistorted_camera = cv2.perspectiveTransform(
+            corrected,
+            self.undistorted_rectified_to_camera,
+        )
+        if self.camera_matrix is None:
+            distorted_camera = _sparse_lens_corr_source_points(
+                undistorted_camera,
+                self.image_width,
+                self.image_height,
+                self.lens_corr_strength,
+                self.lens_corr_zoom,
+                self.lens_corr_center_normalized,
+            )
+        else:
+            flat = undistorted_camera.reshape(-1, 2).astype(np.float64)
+            inverse_camera = np.linalg.inv(self.camera_matrix)
+            homogeneous = np.column_stack(
+                (flat, np.ones(len(flat), dtype=np.float64))
+            )
+            normalized = homogeneous @ inverse_camera.T
+            object_points = np.column_stack(
+                (
+                    normalized[:, 0] / normalized[:, 2],
+                    normalized[:, 1] / normalized[:, 2],
+                    np.ones(len(flat), dtype=np.float64),
+                )
+            )
+            distorted_camera, _ = cv2.projectPoints(
+                object_points,
+                np.zeros(3, dtype=np.float64),
+                np.zeros(3, dtype=np.float64),
+                self.camera_matrix,
+                self.distortion_coefficients,
+            )
+        return distorted_camera.reshape(original_shape).astype(np.float32)
+
+
+def _scaled_camera_matrix(
+    image_width: int,
+    image_height: int,
+) -> np.ndarray | None:
+    configured = camera_calibration.CAMERA_MATRIX
+    if configured is None:
+        return None
+    calibration_width, calibration_height = (
+        camera_calibration.CALIBRATION_IMAGE_SIZE
+    )
+    if calibration_width <= 0 or calibration_height <= 0:
+        raise ValueError("CALIBRATION_IMAGE_SIZE must be positive")
+    matrix = np.asarray(configured, dtype=np.float64).reshape(3, 3).copy()
+    scale_x = image_width / float(calibration_width)
+    scale_y = image_height / float(calibration_height)
+    matrix[0, 0] *= scale_x
+    matrix[0, 2] *= scale_x
+    matrix[1, 1] *= scale_y
+    matrix[1, 2] *= scale_y
+    return matrix
+
+
+def _sparse_lens_corr_points(
+    points: np.ndarray,
+    image_width: int,
+    image_height: int,
+    strength: float | None,
+    zoom: float,
+    center_normalized: tuple[float, float],
+) -> np.ndarray:
+    """Invert Maix/OpenMV lens_corr for sparse source feature points."""
+    if strength is None or strength <= 0:
+        return np.asarray(points, dtype=np.float32).copy()
+    if zoom <= 0:
+        raise ValueError("LENS_CORR_ZOOM must be positive")
+    flat = np.asarray(points, dtype=np.float64).reshape(-1, 2)
+    center = np.asarray(
         [
-            [x0, y0],
-            [x0 + guide_width, y0],
-            [x0 + guide_width, y0 + guide_height],
-            [x0, y0 + guide_height],
+            image_width * center_normalized[0],
+            image_height * center_normalized[1],
+        ],
+        dtype=np.float64,
+    )
+    offsets = flat - center
+    radii = np.linalg.norm(offsets, axis=1)
+    correction_radius = math.hypot(image_width, image_height) / strength
+    angles = radii / (correction_radius * zoom)
+    corrected_radii = correction_radius * np.tan(angles)
+    scales = np.ones_like(radii)
+    nonzero = radii > 1e-9
+    scales[nonzero] = corrected_radii[nonzero] / radii[nonzero]
+    corrected = center + offsets * scales[:, None]
+    return corrected.reshape(np.asarray(points).shape).astype(np.float32)
+
+
+def _sparse_lens_corr_source_points(
+    corrected_points: np.ndarray,
+    image_width: int,
+    image_height: int,
+    strength: float | None,
+    zoom: float,
+    center_normalized: tuple[float, float],
+) -> np.ndarray:
+    """Apply Maix/OpenMV lens_corr's output-to-source pixel mapping."""
+    if strength is None or strength <= 0:
+        return np.asarray(corrected_points, dtype=np.float32).copy()
+    flat = np.asarray(corrected_points, dtype=np.float64).reshape(-1, 2)
+    center = np.asarray(
+        [
+            image_width * center_normalized[0],
+            image_height * center_normalized[1],
+        ],
+        dtype=np.float64,
+    )
+    offsets = flat - center
+    radii = np.linalg.norm(offsets, axis=1)
+    correction_radius = math.hypot(image_width, image_height) / strength
+    ratios = radii / correction_radius
+    scales = np.ones_like(radii)
+    nonzero = radii > 1e-9
+    scales[nonzero] = (
+        np.arctan(ratios[nonzero]) / ratios[nonzero] * zoom
+    )
+    source = center + offsets * scales[:, None]
+    return source.reshape(np.asarray(corrected_points).shape).astype(np.float32)
+
+
+def build_sparse_geometry_calibration(
+    image_width: int,
+    image_height: int,
+) -> SparseGeometryCalibration | None:
+    """Build kilobyte-scale point transforms instead of full-frame maps."""
+    camera_matrix = _scaled_camera_matrix(image_width, image_height)
+    strength = camera_calibration.LENS_CORR_STRENGTH
+    zoom = float(camera_calibration.LENS_CORR_ZOOM)
+    center_normalized = tuple(
+        float(value)
+        for value in camera_calibration.LENS_CORR_CENTER_NORMALIZED
+    )
+    if len(center_normalized) != 2 or not all(
+        0.0 <= value <= 1.0 for value in center_normalized
+    ):
+        raise ValueError(
+            "LENS_CORR_CENTER_NORMALIZED must contain two values in [0, 1]"
+        )
+    configured_distortion = camera_calibration.DISTORTION_COEFFICIENTS
+    if camera_matrix is None and strength is None:
+        return None
+    if camera_matrix is None:
+        distortion = None
+    else:
+        if configured_distortion is None:
+            raise ValueError(
+                "DISTORTION_COEFFICIENTS is required with CAMERA_MATRIX"
+            )
+        distortion = np.asarray(
+            configured_distortion,
+            dtype=np.float64,
+        ).reshape(-1, 1)
+        if distortion.size not in (4, 5, 8, 12, 14):
+            raise ValueError(
+                "DISTORTION_COEFFICIENTS must contain 4, 5, 8, 12 or 14 values"
+            )
+
+    distorted_guide = a4_guide_corners(image_width, image_height)
+    destination = np.asarray(
+        [
+            [0, 0],
+            [RECTIFIED_WIDTH - 1, 0],
+            [RECTIFIED_WIDTH - 1, RECTIFIED_HEIGHT - 1],
+            [0, RECTIFIED_HEIGHT - 1],
         ],
         dtype=np.float32,
     )
+    distorted_camera_to_rectified = cv2.getPerspectiveTransform(
+        distorted_guide,
+        destination,
+    )
+    distorted_rectified_to_camera = np.linalg.inv(
+        distorted_camera_to_rectified
+    )
+    if camera_matrix is None:
+        undistorted_guide = _sparse_lens_corr_points(
+            distorted_guide.reshape(-1, 1, 2),
+            image_width,
+            image_height,
+            strength,
+            zoom,
+            center_normalized,
+        ).reshape(-1, 2)
+    else:
+        undistorted_guide = cv2.undistortPoints(
+            distorted_guide.reshape(-1, 1, 2),
+            camera_matrix,
+            distortion,
+            P=camera_matrix,
+        ).reshape(-1, 2).astype(np.float32)
+    undistorted_camera_to_rectified = cv2.getPerspectiveTransform(
+        undistorted_guide,
+        destination,
+    )
+    return SparseGeometryCalibration(
+        camera_matrix=camera_matrix,
+        distortion_coefficients=distortion,
+        image_width=image_width,
+        image_height=image_height,
+        lens_corr_strength=(
+            None if camera_matrix is not None else strength
+        ),
+        lens_corr_zoom=zoom,
+        lens_corr_center_normalized=center_normalized,
+        distorted_rectified_to_camera=(
+            distorted_rectified_to_camera.astype(np.float64)
+        ),
+        distorted_camera_to_rectified=(
+            distorted_camera_to_rectified.astype(np.float64)
+        ),
+        undistorted_camera_to_rectified=(
+            undistorted_camera_to_rectified.astype(np.float64)
+        ),
+        undistorted_rectified_to_camera=np.linalg.inv(
+            undistorted_camera_to_rectified
+        ).astype(np.float64),
+    )
+
+
+def a4_guide_corners(image_width: int, image_height: int) -> np.ndarray:
+    """Return the expected A4 corner positions in the camera image."""
+    scale = np.asarray([image_width, image_height], dtype=np.float32)
+    return A4_GUIDE_CORNERS_NORMALIZED * scale
 
 
 def rectify_a4(frame: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -719,11 +1015,34 @@ def clean_segmentation_mask(
     return fill_external_components(binary)
 
 
+def keep_interior_components(binary: np.ndarray) -> np.ndarray:
+    """Remove white-support regions connected to the A4/work boundary."""
+    contours, _ = cv2.findContours(
+        binary,
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_SIMPLE,
+    )
+    height, width = binary.shape
+    interior = np.zeros_like(binary)
+    for contour in contours:
+        x, y, w, h = cv2.boundingRect(contour)
+        if (
+            x <= 1
+            or y <= 1
+            or x + w >= width - 1
+            or y + h >= height - 1
+        ):
+            continue
+        cv2.drawContours(interior, [contour], -1, 255, thickness=-1)
+    return interior
+
+
 def select_threshold_candidate(
     measurement: np.ndarray,
     thresholds: Iterable[int],
     preferred_threshold: int,
     invert_bright_majority: bool = False,
+    support_mask: np.ndarray | None = None,
 ) -> tuple[
     np.ndarray,
     int,
@@ -751,6 +1070,8 @@ def select_threshold_candidate(
             255,
             cv2.THRESH_BINARY,
         )
+        if support_mask is not None:
+            binary = cv2.bitwise_or(binary, support_mask)
         binary = clean_segmentation_mask(
             binary,
             invert_bright_majority=invert_bright_majority,
@@ -844,6 +1165,13 @@ def segment_colour_difference(
 ]:
     """Separate pieces from an arbitrary, approximately uniform sheet."""
     blurred = cv2.GaussianBlur(work_image, (5, 5), 0)
+    hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
+    low_saturation_white = cv2.inRange(
+        hsv,
+        (0, 0, WHITE_MIN_VALUE),
+        (179, WHITE_MAX_SATURATION, 255),
+    )
+    low_saturation_white = keep_interior_components(low_saturation_white)
     lab = cv2.cvtColor(blurred, cv2.COLOR_BGR2LAB)
     # The rectified edge can contain the white physical A4 border, so edge
     # samples are not a reliable sheet-colour estimate.  Puzzle pieces occupy
@@ -916,6 +1244,7 @@ def segment_colour_difference(
         distance,
         thresholds,
         background_threshold,
+        support_mask=low_saturation_white,
     )
 
 
@@ -941,8 +1270,14 @@ def segment_bright_pieces(
         primary_score,
         primary_repaired,
     ) = primary(work_image)
+    # A global colour-distance threshold can still return four clean-looking
+    # polygons after lens shading has removed the dim side of an edge piece.
+    # In that mode, compare the intensity fallback before accepting 4/4.  The
+    # intensity-primary path keeps its early exit to avoid unnecessary work on
+    # neutral sheets and dark boards.
     if (
-        primary_score[0] == MAX_PIECES
+        primary is segment_intensity_pieces
+        and primary_score[0] == MAX_PIECES
         and primary_score[1] == MAX_PIECES
         and primary_score[2] == 0
     ):
@@ -1022,7 +1357,10 @@ def polygon_edge_lengths(polygon: np.ndarray) -> list[float]:
     ]
 
 
-def detect_pieces(rectified: np.ndarray) -> tuple[list[Piece], np.ndarray, int]:
+def detect_pieces(
+    rectified: np.ndarray,
+    geometry_calibration: SparseGeometryCalibration | None = None,
+) -> tuple[list[Piece], np.ndarray, int]:
     x0, y0, x1, y1 = work_bounds()
     work_image = rectified[y0:y1, x0:x1]
     _, threshold, repaired_binary = segment_bright_pieces(work_image)
@@ -1047,22 +1385,41 @@ def detect_pieces(rectified: np.ndarray) -> tuple[list[Piece], np.ndarray, int]:
         if bx <= 1 or by <= 1 or bx + bw >= work_width - 1 or by + bh >= work_height - 1:
             continue
 
-        polygon = fit_polygon(contour)
-        if polygon is None:
-            continue
-        polygon[:, 0] += x0
-        polygon[:, 1] += y0
-        contour_global = contour.copy()
-        contour_global[:, 0, 0] += x0
-        contour_global[:, 0, 1] += y0
-
-        moments = cv2.moments(contour)
+        if geometry_calibration is None:
+            polygon = fit_polygon(contour)
+            if polygon is None:
+                continue
+            polygon[:, 0] += x0
+            polygon[:, 1] += y0
+            contour_global = contour.copy()
+            contour_global[:, 0, 0] += x0
+            contour_global[:, 0, 1] += y0
+            moments = cv2.moments(contour)
+            area_cm2 = area_px / (PX_PER_CM * PX_PER_CM)
+            centroid_offset = (x0, y0)
+        else:
+            contour_global = contour.astype(np.float32)
+            contour_global[:, 0, 0] += x0
+            contour_global[:, 0, 1] += y0
+            contour_global = geometry_calibration.correct_contour(
+                contour_global
+            )
+            polygon = fit_polygon(contour_global)
+            if polygon is None:
+                continue
+            moments = cv2.moments(contour_global)
+            area_cm2 = abs(float(cv2.contourArea(contour_global))) / (
+                PX_PER_CM * PX_PER_CM
+            )
+            centroid_offset = (0, 0)
         if abs(moments["m00"]) < 1e-6:
             continue
         centroid = (
-            moments["m10"] / moments["m00"] + x0,
-            moments["m01"] / moments["m00"] + y0,
+            moments["m10"] / moments["m00"] + centroid_offset[0],
+            moments["m01"] / moments["m00"] + centroid_offset[1],
         )
+        if centroid[0] < RECTIFIED_WIDTH * SOURCE_CENTER_X_MIN:
+            continue
         lengths = polygon_edge_lengths(polygon)
         valid = (
             3 <= len(polygon) <= 5
@@ -1073,7 +1430,7 @@ def detect_pieces(rectified: np.ndarray) -> tuple[list[Piece], np.ndarray, int]:
                 "contour": contour_global,
                 "polygon": polygon,
                 "centroid": centroid,
-                "area_cm2": area_px / (PX_PER_CM * PX_PER_CM),
+                "area_cm2": area_cm2,
                 "edge_lengths_cm": lengths,
                 "valid": valid,
             }
@@ -1098,17 +1455,26 @@ def draw_detection(
     rectified: np.ndarray,
     pieces: Iterable[Piece],
     threshold: int,
+    point_transform=None,
 ) -> np.ndarray:
     canvas = rectified.copy()
     x0, y0, x1, y1 = work_bounds()
-    cv2.rectangle(canvas, (x0, y0), (x1, y1), (0, 255, 255), 3)
+    # Detection keeps a guard band across the divider, but the yellow guide
+    # represents the actual right-half source zone.
+    guide_x0 = int(round(RECTIFIED_WIDTH * SOURCE_CENTER_X_MIN))
+    cv2.rectangle(canvas, (guide_x0, y0), (x1, y1), (0, 255, 255), 3)
 
     pieces = list(pieces)
     for piece in pieces:
         color = COLORS[(piece.piece_id - 1) % len(COLORS)]
         if not piece.valid:
             color = (0, 0, 255)
-        polygon_int = np.round(piece.polygon).astype(np.int32)
+        display_polygon = piece.polygon
+        display_centroid = np.asarray(piece.centroid, dtype=np.float32)
+        if point_transform is not None:
+            display_polygon = point_transform(display_polygon)
+            display_centroid = point_transform(display_centroid)
+        polygon_int = np.round(display_polygon).astype(np.int32)
         cv2.polylines(canvas, [polygon_int], True, color, 5, cv2.LINE_AA)
 
         for vertex_id, point in enumerate(polygon_int):
@@ -1143,8 +1509,8 @@ def draw_detection(
             f"A={piece.area_cm2:.1f}cm2"
         )
         position = (
-            int(piece.centroid[0]) - 80,
-            int(piece.centroid[1]),
+            int(display_centroid[0]) - 80,
+            int(display_centroid[1]),
         )
         cv2.putText(
             canvas,
@@ -1305,8 +1671,15 @@ def run_pc_image(image_path: str, output_path: str) -> int:
     frame = cv2.imread(image_path)
     if frame is None:
         raise RuntimeError(f"Cannot read image: {image_path}")
+    geometry_calibration = build_sparse_geometry_calibration(
+        frame.shape[1],
+        frame.shape[0],
+    )
     rectified, _ = rectify_a4(frame)
-    pieces, binary, threshold = detect_pieces(rectified)
+    pieces, binary, threshold = detect_pieces(
+        rectified,
+        geometry_calibration,
+    )
     annotated = draw_detection(rectified, pieces, threshold)
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -1338,6 +1711,15 @@ def run_maix() -> int:
     disp = display.Display()
     touch = touchscreen.TouchScreen()
     touch.clear()
+    geometry_calibration = build_sparse_geometry_calibration(
+        CAMERA_WIDTH,
+        CAMERA_HEIGHT,
+    )
+    print(
+        "Sparse contour undistortion: {}".format(
+            "enabled" if geometry_calibration is not None else "disabled"
+        )
+    )
 
     mode = "align"
     pressed_before = False
@@ -1388,7 +1770,10 @@ def run_maix() -> int:
                             last_pieces,
                             last_binary,
                             threshold,
-                        ) = detect_pieces(last_rectified)
+                        ) = detect_pieces(
+                            last_rectified,
+                            geometry_calibration,
+                        )
                         last_annotated = draw_detection(
                             last_rectified,
                             last_pieces,
