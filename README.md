@@ -1,11 +1,12 @@
 # MaixCAM2 拼图装置（易读版）
 
-这是一个“相机识别碎片 -> 计算矩形拼接 -> 规划滑轨搬运 -> UART0 控制 STM32”的端到端项目。当前提交是代码整理后的“易读版”；上一提交 `24c7d5f` 保留为可运行基线。
+这是一个“相机识别碎片 -> 任务求解 -> 规划滑轨搬运 -> UART0 控制 STM32”的端到端项目。当前默认任务是矩形拼图；任务流程已通过 `TaskAdapter` 解耦，七巧板等新任务可替换自己的识别后处理、求解器和运动策略。当前提交是代码整理后的“易读版”；上一提交 `24c7d5f` 保留为可运行基线。
 
 ## 快速定位
 
 - MaixCAM 入口：`puzzle_motion_v2/maix_project/main.py`
 - 运行时流程：`puzzle_motion_v2/maix_project/runtime_pipeline.py`
+- 可替换任务接口：`puzzle_motion_v2/maix_project/task_pipeline.py`
 - 视觉识别：`puzzle_motion_v2/maix_project/piece_vision.py`
 - V3 几何求解：`puzzle_motion_v2/maix_project/puzzle_solver_v3.py`
 - 运动协议：`puzzle_motion_v2/maix_project/motion_protocol.py`
@@ -29,6 +30,13 @@ python puzzle_visual_demo.py --headless
 ```
 
 更多设备端和仿真操作见 `puzzle_motion_v2/README_拼图求解与滑轨仿真.md`。MaixCAM 固件环境使用系统自带 `maix`，不要在 PC 环境安装同名替代包。
+
+## 更换任务
+
+`main.py` 中的 `ACTIVE_TASK` 是任务插槽，默认指向 `RectanglePuzzleTask`。
+接手者实现 `TaskAdapter`（见 `代码结构解析.md`）后，将该变量替换为七巧板适配器，
+即可保留相机、触摸屏、显示和 UART 外壳。新任务可以使用完全不同的碎片数量、
+目标形状、求解器和运动规划，但应返回统一的运动计划字典供 UI 和保存模块使用。
 
 ## 输出文件
 

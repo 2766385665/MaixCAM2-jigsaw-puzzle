@@ -19,8 +19,9 @@ from runtime_pipeline import (
     prepare_detection_frame,
     save_session as _save_session,
     send_motion_plan as _send_motion_plan,
-    solve_detected_pieces as _solve_detected_pieces,
+    solve_task as _solve_task,
 )
+from task_pipeline import RectanglePuzzleTask
 
 
 APP_VERSION = "5.16-rail-limit-pickup"
@@ -38,6 +39,8 @@ MOTION_SERIAL_BAUDRATE = 115200
 # UART0 uses the board's default U0T/U0R mapping; do not remap system pins.
 MOTION_SERIAL_PIN_FUNCTIONS = {}
 COLORS = piece_vision.COLORS
+# 任务插槽：接手者可替换为 TangramTask，而无需修改设备循环。
+ACTIVE_TASK = RectanglePuzzleTask()
 
 
 def configure_camera_exposure(cam, camera_module) -> None:
@@ -48,9 +51,24 @@ def configure_camera_exposure(cam, camera_module) -> None:
 
 
 def solve_detected_pieces(pieces, rectified=None, geometry_calibration=None):
-    """入口层适配器：使用本版本的求解时限执行业务流程。"""
-    return _solve_detected_pieces(
-        pieces, rectified, geometry_calibration, SOLVER_MAX_SECONDS
+    """使用当前任务插槽执行业务流程。"""
+    return _solve_task(
+        pieces,
+        rectified,
+        geometry_calibration,
+        SOLVER_MAX_SECONDS,
+        ACTIVE_TASK,
+    )
+
+
+def solve_with_task(task, pieces, rectified=None, geometry_calibration=None):
+    """使用指定任务适配器求解，例如七巧板任务。"""
+    return _solve_task(
+        pieces,
+        rectified,
+        geometry_calibration,
+        SOLVER_MAX_SECONDS,
+        task,
     )
 
 

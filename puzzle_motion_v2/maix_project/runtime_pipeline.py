@@ -19,6 +19,23 @@ import pixel_to_pulse_calibration
 import piece_vision
 import puzzle_solver_v3 as puzzle_solver
 import texture_matcher
+from task_pipeline import PuzzlePipeline, TaskAdapter, create_rectangle_pipeline
+
+
+def solve_task(
+    pieces,
+    rectified=None,
+    geometry_calibration=None,
+    solver_max_seconds: float = 23.0,
+    task: TaskAdapter | None = None,
+):
+    """运行可替换任务；默认使用当前矩形拼图适配器。"""
+    pipeline = (
+        create_rectangle_pipeline(solver_max_seconds)
+        if task is None
+        else PuzzlePipeline(task, solver_max_seconds)
+    )
+    return pipeline.solve(pieces, rectified, geometry_calibration)
 
 
 def corrected_cm_to_live_screen(point_cm, geometry_calibration):
