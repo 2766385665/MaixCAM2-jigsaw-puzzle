@@ -5,6 +5,8 @@ legal layouts by sampling narrow strips just inside both sides of every
 candidate seam.  It is intentionally independent from the solver classes so
 it can be disabled by passing no context and can run on MaixCAM 2 with only
 OpenCV and NumPy.
+
+纹理模块是几何候选的排序器，不是独立求解器；图案过白时会自动降低权重。
 """
 
 from __future__ import annotations
@@ -916,6 +918,7 @@ def score_source_topology(
     family_cache: dict | None = None,
 ) -> dict:
     """Score candidate edge pairing directly in the rectified source."""
+    # 原始碎片的接缝两侧应呈现连续颜色/亮度；仅用于同分候选排序。
     if context is None:
         return {
             "score": 0.0,
@@ -1262,6 +1265,7 @@ def score_layout(
     orders,
 ) -> dict:
     """Score pattern continuity for one already legal geometric layout."""
+    # 目标布局额外检查外框印刷、接缝连续性和对称性，抑制镜像误解。
     if context is None:
         return {
             "score": 0.0,

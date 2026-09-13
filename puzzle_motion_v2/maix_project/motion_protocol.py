@@ -1,4 +1,8 @@
-"""Pickup-point planning and shared motion-command JSON protocol."""
+"""Pickup-point planning and shared motion-command JSON protocol.
+
+数据流为“目标几何 -> 安全吸取点 -> 屏幕/脉冲坐标 -> STM32 帧”。
+边界、碰撞和吸取半径检查失败时，调用方应停止发送并提示人工处理。
+"""
 
 from __future__ import annotations
 
@@ -68,6 +72,7 @@ def safe_pickup_point(
     margin_cm: float = PICKUP_MARGIN_CM,
     candidate_validator=None,
 ) -> tuple[np.ndarray, float, bool]:
+    """用距离变换搜索磁铁半径之外的内部点，并返回安全标志。"""
     vertices = np.asarray(vertices_cm, dtype=np.float64)
     minimum = np.min(vertices, axis=0) - 0.3
     maximum = np.max(vertices, axis=0) + 0.3
@@ -725,6 +730,7 @@ def build_motion_plan(
     output_path: str | None = None,
     point_to_pulse=None,
 ) -> dict:
+    """把求解布局转换为按碎片排序的搬运命令和完整调试载荷。"""
     plan_started = time.monotonic()
     placements = {
         placement.piece_id: placement
@@ -743,7 +749,7 @@ def build_motion_plan(
     pieces_payload = []
     commands = []
 
-    # Place pieces from largest to smallest for a stable base.
+    # 按面积从大到小搬运，先放置的碎片形成更稳定的底层。
     order = sorted(
         range(len(source_pieces_cm)),
         key=lambda piece_id: abs(

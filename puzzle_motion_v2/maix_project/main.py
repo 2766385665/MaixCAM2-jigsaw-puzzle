@@ -148,9 +148,7 @@ def run_maix() -> int:
                 copy=True,
             )
             last_raw = frame
-            # Keep the live path cheap. Full-resolution rectification,
-            # multi-threshold segmentation and polygon fitting run once per
-            # START tap.
+            # 实时预览只画引导框，避免每帧执行透视矫正、分割和多边形拟合。
             preview_source = piece_vision.draw_camera_guide(frame)
         else:
             preview_source = draw_motion_plan(
@@ -173,7 +171,7 @@ def run_maix() -> int:
                 pressed_before = True
             elif pressed_before:
                 pressed_before = False
-                # Every tap starts a fresh full capture-to-command cycle.
+                # 每次抬起触摸都启动一次“采集 -> 识别 -> 求解 -> 指令”闭环。
                 x, y = last_touch
                 if piece_vision.point_in_rect(
                     x,
@@ -297,9 +295,7 @@ def run_maix() -> int:
                     )
                     if sent:
                         message += " UART0 sent"
-                # Show the completed placement immediately.  Debug JSON and
-                # image saving can take seconds on the SD card, so they must
-                # not delay the operator-facing result frame.
+                # 先显示结果，再写 SD 卡；调试文件较大，不能阻塞操作员反馈。
                 result_screen = piece_vision.compose_screen(
                     draw_motion_plan(
                         last_annotated,

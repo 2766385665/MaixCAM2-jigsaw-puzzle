@@ -97,11 +97,13 @@ def solve_detected_pieces(
     solver_max_seconds: float = 23.0,
 ):
     """执行识别结果 -> 几何求解 -> 运动计划的完整业务流程。"""
+    # 统一转换为厘米坐标，后续几何算法与相机分辨率解耦。
     solve_started = time.monotonic()
     source_pieces_cm = [
         np.asarray(piece.polygon, dtype=np.float64) / piece_vision.PX_PER_CM
         for piece in pieces
     ]
+    # 纹理上下文只建立一次，供求解器对多个几何候选重复评分。
     texture_context = (
         None
         if rectified is None
@@ -116,6 +118,7 @@ def solve_detected_pieces(
         )
     )
     texture_ready = time.monotonic()
+    # V3 先做离散拓扑搜索，再做连续姿态优化；返回节点数用于诊断性能。
     solution, nodes = puzzle_solver.solve_geometry(
         source_pieces_cm,
         max_seconds=solver_max_seconds,
@@ -140,6 +143,7 @@ def solve_detected_pieces(
 
     final_solution = puzzle_solver.canonical_target_solution(solution)
     canonical_finished = time.monotonic()
+    # 几何解转运动计划时执行标定范围和滑轨限位检查。
     try:
         plan = motion_protocol.build_motion_plan(
             source_pieces_cm,

@@ -17,6 +17,9 @@ Scene requirement:
   * align the four A4 corners with the green guide before detection.
 
 No Shapely, SciPy or PyQt is required.
+
+代码按“标定 -> A4 矫正 -> 二值分割 -> 轮廓拟合 -> 碎片筛选 -> 结果绘制”组织。
+上层运行时主要调用 ``rectify_a4``、``detect_pieces`` 和 ``draw_detection``。
 """
 
 from __future__ import annotations
@@ -136,6 +139,7 @@ COLORS = [
 
 @dataclass
 class Piece:
+    """识别结果的数据对象，polygon 使用像素坐标，面积/边长使用厘米。"""
     piece_id: int
     contour: np.ndarray
     polygon: np.ndarray
@@ -458,6 +462,7 @@ def a4_guide_corners(image_width: int, image_height: int) -> np.ndarray:
 
 
 def rectify_a4(frame: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """将原始相机画面透视变换到固定尺寸的 A4 矫正画布。"""
     source = a4_guide_corners(frame.shape[1], frame.shape[0])
     destination = np.asarray(
         [
@@ -736,6 +741,7 @@ def has_supported_near_limit_edge(polygon: np.ndarray) -> bool:
 
 
 def fit_polygon(contour: np.ndarray) -> np.ndarray | None:
+    """把轮廓拟合成 3~5 边多边形，并过滤毛刺和过短边。"""
     perimeter = cv2.arcLength(contour, True)
     if perimeter <= 0:
         return None
@@ -1124,6 +1130,7 @@ def segment_intensity_pieces(
     tuple[int, int, int, float, float, float],
     np.ndarray,
 ]:
+    # 亮度分支适合深色底板上的亮碎片，也兼容白纸上的深色碎片。
     gray = cv2.cvtColor(work_image, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (5, 5), 0)
     otsu_threshold, _ = cv2.threshold(
@@ -1164,6 +1171,7 @@ def segment_colour_difference(
     np.ndarray,
 ]:
     """Separate pieces from an arbitrary, approximately uniform sheet."""
+    # LAB 最大通道差对轻微色偏更稳定；背景用稀疏中位数估计，避免碎片污染。
     blurred = cv2.GaussianBlur(work_image, (5, 5), 0)
     hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
     low_saturation_white = cv2.inRange(
@@ -1252,6 +1260,7 @@ def segment_bright_pieces(
     work_image: np.ndarray,
 ) -> tuple[np.ndarray, int, np.ndarray]:
     """Choose a fast primary mode and run the other only as fallback."""
+    # 先根据背景色度选择主分支，只有主分支质量不足时才运行备用分支。
     samples = work_image[::6, ::6].reshape(-1, 3)
     background_bgr = np.median(samples, axis=0)
     background_chroma = float(
@@ -1361,6 +1370,8 @@ def detect_pieces(
     rectified: np.ndarray,
     geometry_calibration: SparseGeometryCalibration | None = None,
 ) -> tuple[list[Piece], np.ndarray, int]:
+    """执行分割、候选筛选和编号，返回碎片列表、二值图及采用的阈值。"""
+    # 后续求解器依赖稳定的 piece_id，因此这里统一按质心位置排序并编号。
     x0, y0, x1, y1 = work_bounds()
     work_image = rectified[y0:y1, x0:x1]
     _, threshold, repaired_binary = segment_bright_pieces(work_image)

@@ -3,6 +3,9 @@
 This module is intentionally separate from puzzle_solver.py while it is
 validated on the PC. It uses only OpenCV and Numpy so the same file can run
 on MaixCAM 2 after validation.
+
+V3 阶段为：接缝族生成 -> 拓扑枚举 -> 初始刚体位姿 -> 连续优化 -> 候选评分。
+``solve_geometry`` 是推荐入口，其余函数按阶段划分，便于定位超时和歧义。
 """
 
 from __future__ import annotations
@@ -265,12 +268,14 @@ _LAST_DIAGNOSTICS: dict = {}
 
 @dataclass(frozen=True, order=True)
 class EdgeRef:
+    """碎片边的稳定引用，用于跨阶段传递匹配关系。"""
     piece_id: int
     edge_id: int
 
 
 @dataclass(frozen=True)
 class SeamFamily:
+    """一组可解释为同一接缝的边匹配（含 T 形长边拆分情况）。"""
     long_edge: EdgeRef
     short_edges: tuple[EdgeRef, ...]
     length_error_cm: float
@@ -322,6 +327,7 @@ class SeamFamily:
 
 @dataclass
 class LayoutCandidate:
+    """候选布局及其 IoU、接缝、纹理和周边评分。"""
     solution: Solution
     score: float
     iou: float
@@ -421,6 +427,7 @@ def edge_mask(
 def generate_seam_families(
     pieces: list[np.ndarray],
 ) -> tuple[list[SeamFamily], list[list[float]]]:
+    """按边长容差生成完整边、拆分边和链到链接缝候选。"""
     lengths, bit_index = build_edge_tables(pieces)
     edges = [
         EdgeRef(piece_id, edge_id)
@@ -3314,6 +3321,7 @@ def _solve_geometry_once(
     fast_only: bool = False,
 ) -> tuple[Solution | None, int]:
     """Solve 1--4 randomly rotated pieces using global seam constraints."""
+    # 每个阶段有独立截止时间，确保拓扑枚举不会耗尽预算而跳过姿态优化。
     global _LAST_DIAGNOSTICS
     _LAST_DIAGNOSTICS = {}
     if not 1 <= len(pieces) <= 4:
@@ -4975,7 +4983,10 @@ def solve_geometry(
     max_seconds: float | None = DEFAULT_MAX_SECONDS,
     texture_context: texture_matcher.TextureContext | None = None,
 ) -> tuple[Solution | None, int]:
-    """Solve card captures with card limits and Q1/Q2 captures strictly."""
+    """在时间预算内完成拓扑搜索、姿态优化和候选排序。
+
+    白色扑克牌和纸板碎片使用不同尺寸门控；失败时保留诊断并尝试兼容回退。
+    """
     global _LAST_DIAGNOSTICS
     global TARGET_MIN_SHORT_CM, TARGET_MAX_SHORT_CM
     global TARGET_MIN_LONG_CM, TARGET_MAX_LONG_CM
