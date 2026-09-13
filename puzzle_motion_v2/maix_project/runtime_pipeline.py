@@ -113,7 +113,11 @@ def solve_detected_pieces(
     geometry_calibration=None,
     solver_max_seconds: float = 23.0,
 ):
-    """执行识别结果 -> 几何求解 -> 运动计划的完整业务流程。"""
+    """兼容旧调用的矩形拼图流程。
+
+    新代码应调用 ``solve_task``，通过 ``TaskAdapter`` 替换任务规则；本函数
+    保留给旧脚本和历史验证使用，避免接手时出现隐式 API 断裂。
+    """
     # 统一转换为厘米坐标，后续几何算法与相机分辨率解耦。
     solve_started = time.monotonic()
     source_pieces_cm = [
